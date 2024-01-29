@@ -1,1 +1,1 @@
-# fenicsx-linear-wave
+# FEniCSx - linear wave demo
