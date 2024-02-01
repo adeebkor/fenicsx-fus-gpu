@@ -6,14 +6,12 @@
 # Copyright (C) 2024 Adeeb Arif Kor
 
 from mpi4py import MPI
-from petsc4py import PETSc
 import numpy as np
 
 import basix
 import basix.ufl
 
-from dolfinx import fem, io, mesh
-from dolfinx.fem import petsc
+from dolfinx import fem, la, io, mesh
 import ufl
 
 # ------------- #
@@ -120,8 +118,8 @@ u.x.array[:] = 1.0
 a = fem.form(
     ufl.inner(u/rho/c0/c0, v) * ufl.dx(metadata=md)
     + ufl.inner(delta/rho/c0/c0/c0*u, v) * ds(2, metadata=md))
-m = petsc.assemble_vector(a)
-m.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+m = fem.assemble_vector(a)
+m.scatter_reverse(la.InsertMode.add)
 
 L = fem.form(
     - ufl.inner(1.0/rho*ufl.grad(u_n), ufl.grad(v)) * ufl.dx(metadata=md)
@@ -130,8 +128,8 @@ L = fem.form(
     - ufl.inner(delta/rho/c0/c0*ufl.grad(v_n), ufl.grad(v))
     * ufl.dx(metadata=md)
     + ufl.inner(delta/rho/c0/c0*dg, v) * ds(1, metadata=md))
-b = petsc.assemble_vector(L)
-m.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+b = fem.assemble_vector(L)
+b.scatter_reverse(la.InsertMode.add)
 
 # Set initial values for u_n and v_n
 u_n.x.array[:] = 0.0
@@ -141,8 +139,7 @@ v_n.x.array[:] = 0.0
 # RK slope functions #
 # ------------------ #
 
-
-def f0(t: float, u: PETSc.Vec, v: PETSc.Vec, result: PETSc.Vec):
+def f0(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     """
     Evaluate du/dt = f0(t, u, v)
 
@@ -157,10 +154,10 @@ def f0(t: float, u: PETSc.Vec, v: PETSc.Vec, result: PETSc.Vec):
     result : Result, i.e. k^{u}
     """
 
-    v.copy(result=result)
+    result.array[:] = v.array[:]
 
 
-def f1(t: float, u: PETSc.Vec, v: PETSc.Vec, result: PETSc.Vec):
+def f1(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     """
     Evaluate dv/dt = f1(t, u, v)
 
@@ -191,22 +188,18 @@ def f1(t: float, u: PETSc.Vec, v: PETSc.Vec, result: PETSc.Vec):
         - window * p0 * w0**2 / c0 * np.sin(w0 * t)
 
     # Update fields
-    u.copy(result=u_n.vector)
-    u_n.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                           mode=PETSc.ScatterMode.FORWARD)
-    v.copy(result=v_n.vector)
-    v_n.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                           mode=PETSc.ScatterMode.FORWARD)
+    u_n.x.array[:] = u.array[:]
+    u_n.x.scatter_forward()
+    v_n.x.array[:] = v.array[:]
+    v_n.x.scatter_forward()
 
     # Assemble RHS
-    with b.localForm() as b_local:
-        b_local.set(0.0)
-    petsc.assemble_vector(b, L)
-    b.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                  mode=PETSc.ScatterMode.REVERSE)
+    b.array[:] = 0
+    fem.assemble_vector(b.array, L)
+    b.scatter_reverse(la.InsertMode.add)
 
     # Solve
-    result.pointwiseDivide(b, m)
+    result.array[:] = b.array[:] / m.array[:]
 
 
 # --------------- #
@@ -220,20 +213,20 @@ b_runge = np.array([1.0/6.0, 1.0/3.0, 1.0/3.0, 1.0/6.0])
 c_runge = np.array([0.0, 0.5, 0.5, 1.0])
 
 # Solution vectors at time step n
-u_ = u_n.vector.copy()
-v_ = v_n.vector.copy()
+u_ = la.vector(V.dofmap.index_map)
+v_ = la.vector(V.dofmap.index_map)
 
 # Solution vectors at intermediate time step
-un = u_n.vector.copy()
-vn = v_n.vector.copy()
+un = la.vector(V.dofmap.index_map)
+vn = la.vector(V.dofmap.index_map)
 
 # Solution vectors at start of time step
-u0 = u_n.vector.copy()
-v0 = v_n.vector.copy()
+u0 = la.vector(V.dofmap.index_map)
+v0 = la.vector(V.dofmap.index_map)
 
 # Slope vectors at intermediatte time step
-ku = u0.copy()
-kv = v0.copy()
+ku = la.vector(V.dofmap.index_map)
+kv = la.vector(V.dofmap.index_map)
 
 # Temporal data
 t = tstart
@@ -244,16 +237,16 @@ while t < tfinal:
     dt = min(dt, tfinal-t)
 
     # Store solution at start of time step
-    u_.copy(result=u0)
-    v_.copy(result=v0)
+    u0.array[:] = u_.array[:]
+    v0.array[:] = v_.array[:]
 
     # Runge-Kutta step
     for i in range(n_rk):
-        u0.copy(result=un)
-        v0.copy(result=vn)
+        un.array[:] = u0.array[:]
+        vn.array[:] = v0.array[:]
 
-        un.axpy(a_runge[i]*dt, ku)
-        vn.axpy(a_runge[i]*dt, kv)
+        un.array[:] += a_runge[i] * dt * ku.array[:]
+        vn.array[:] += a_runge[i] * dt * kv.array[:]
 
         tn = t + c_runge[i] * dt
 
@@ -262,22 +255,20 @@ while t < tfinal:
         f1(tn, un, vn, result=kv)
 
         # Update solution
-        u_.axpy(b_runge[i]*dt, ku)
-        v_.axpy(b_runge[i]*dt, kv)
+        u_.array[:] += b_runge[i] * dt * ku.array[:]
+        v_.array[:] += b_runge[i] * dt * kv.array[:]
 
     # Update time
     t += dt
     step += 1
 
-    if step % 100 == 0:
-        PETSc.Sys.syncPrint(f"t: {t:5.5},\t Steps: {step}/{nstep}")
+    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
+        print(f"t: {t:5.5},\t Steps: {step}/{nstep}", flush=True)
 
-    u_.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                   mode=PETSc.ScatterMode.FORWARD)
-    v_.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                   mode=PETSc.ScatterMode.FORWARD)
-    u_.copy(result=u_n.vector)
-    v_.copy(result=v_n.vector)
+    u_.scatter_forward()
+    v_.scatter_forward()
+    u_n.x.array[:] = u_.array[:]
+    v_n.x.array[:] = v_.array[:]
 
 # --------------------- #
 # Output final solution #
