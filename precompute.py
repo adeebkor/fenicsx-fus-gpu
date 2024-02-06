@@ -5,7 +5,7 @@ import numba
 from mpi4py import MPI
 
 import basix
-from dolfinx.mesh import create_unit_cube, CellType
+from dolfinx.mesh import create_box, CellType
 
 
 @numba.njit(fastmath=True)
@@ -99,9 +99,11 @@ if __name__ == "__main__":
         basix.CellType.hexahedron, Q[P], basix.QuadratureType.gll
     )
 
-    mesh = create_unit_cube(
-        MPI.COMM_WORLD, 8, 8, 8, cell_type=CellType.hexahedron)
+    mesh = create_box(
+        MPI.COMM_WORLD, ((0, 0, 0), (1, 1, 1)), 
+        (8, 8, 8), cell_type=CellType.hexahedron)
 
+    # Prepare input data to functions
     x_dofs = mesh.geometry.dofmap
     x_g = mesh.geometry.x
     cell_type = mesh.basix_cell()
@@ -123,7 +125,7 @@ if __name__ == "__main__":
         detJ, (x_dofs, x_g), (tdim, gdim), num_cell, dphi, wts
     )
 
-    # Time scaled Jacobian determinant function
+    # Timing scaled Jacobian determinant function
     timing_jacobian_det = np.empty(10)
     for i in range(timing_jacobian_det.size):
         tic = perf_counter_ns()
@@ -148,7 +150,7 @@ if __name__ == "__main__":
         G, (x_dofs, x_g), (tdim, gdim), num_cell, dphi, wts
     )
 
-    # Time scaled Jacobian determinant function
+    # Timing scaled Jacobian determinant function
     timing_geometrical_fac = np.empty(10)
     for i in range(timing_geometrical_fac.size):
         tic = perf_counter_ns()
