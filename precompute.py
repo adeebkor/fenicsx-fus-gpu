@@ -100,7 +100,7 @@ if __name__ == "__main__":
     )
 
     mesh = create_box(
-        MPI.COMM_WORLD, ((0, 0, 0), (1, 1, 1)), 
+        MPI.COMM_WORLD, ((0, 0, 0), (1, 1, 1)),
         (8, 8, 8), cell_type=CellType.hexahedron)
 
     # Prepare input data to functions

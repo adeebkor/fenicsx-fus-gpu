@@ -17,17 +17,17 @@ def mass_operator(x, coeffs, y, detJ, dofmap, tp_order):
 
     for c in range(nc):
         # Pack coefficients
-        x_[:] = x[dofmap[c][tp_order]]
-        
+        x_ = x[dofmap[c][tp_order]]
+
         # Apply transform
-        x_[:] *= detJ[c] * coeffs[c]
+        x_ *= detJ[c] * coeffs[c]
 
         # Add contributions
-        y[dofmap[c][tp_order]] += x_[:]
+        y[dofmap[c][tp_order]] += x_
 
 
 if __name__ == "__main__":
-    
+
     P = 5  # Basis function order
     Q = {
         2: 3,
@@ -78,13 +78,14 @@ if __name__ == "__main__":
         basix.CellType.hexahedron, Q[P], basix.QuadratureType.gll
     )
 
-    gelement = basix.create_element(basix.ElementFamily.P, mesh.basix_cell(), 1)
+    gelement = basix.create_element(
+        basix.ElementFamily.P, mesh.basix_cell(), 1)
     gtable = gelement.tabulate(1, pts)
     dphi = gtable[1:, :, :, 0]
 
     nq = wts.size
     detJ = np.zeros((num_cells, nq), dtype=np.float32)
-    
+
     compute_scaled_jacobian_determinant(
         detJ, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
 
@@ -105,5 +106,4 @@ if __name__ == "__main__":
     print(
         f"Elapsed time (mass operator): "
         f"{timing_mass_operator.mean():.0f} ± "
-        f"{timing_mass_operator.std():.0f} μs"
-    )
+        f"{timing_mass_operator.std():.0f} μs")
