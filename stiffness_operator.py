@@ -33,13 +33,13 @@ def stiffness_operator(x, coeffs, y, G, dofmap, dphi, tp_order):
         x_ = x[dofmap[c][tp_order]].reshape(nd, nd, nd)
 
         # Apply contraction in the x-direction
-        T1 = np.einsum("qi,ijk->qjk", dphi_1D, x_)
+        T1 = np.einsum("qi,ijk->qjk", dphi, x_)
 
         # Apply contraction in the y-direction
-        T2 = np.einsum("qj,ijk->iqk", dphi_1D, x_)
+        T2 = np.einsum("qj,ijk->iqk", dphi, x_)
 
         # Apply contraction in the z-direction
-        T3 = np.einsum("qk,ijk->ijq", dphi_1D, x_)
+        T3 = np.einsum("qk,ijk->ijq", dphi, x_)
 
         # Apply transform"
         stiffness_transform(G[c], coeffs[c],
@@ -49,15 +49,15 @@ def stiffness_operator(x, coeffs, y, G, dofmap, dphi, tp_order):
 
         # Apply contraction in the x-direction
         T1 = T1.reshape(nd, nd, nd)
-        y0_ = np.einsum("qi,qjk->ijk", dphi_1D, T1)
+        y0_ = np.einsum("qi,qjk->ijk", dphi, T1)
 
         # Apply contraction in the y-direction
         T2 = T2.reshape(nd, nd, nd)
-        y1_ = np.einsum("qj,iqk->ijk", dphi_1D, T2)
+        y1_ = np.einsum("qj,iqk->ijk", dphi, T2)
 
         # Apply contraction in the z-direction
         T3 = T3.reshape(nd, nd, nd)
-        y2_ = np.einsum("qk,ijq->ijk", dphi_1D, T3)
+        y2_ = np.einsum("qk,ijq->ijk", dphi, T3)
 
         # Add contributions
         y_ = y0_ + y1_ + y2_
@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     # Create function
     u0 = Function(V)
-    u0.interpolate(lambda x: np.sin(x[0]) * np.cos(np.pi * x[1]))
+    u0.interpolate(lambda x: 1000 * np.sin(4*np.pi*x[0]) * np.cos(np.pi * x[1]))
     u = u0.x.array.astype(np.float32)
     b0 = Function(V)
     b = b0.x.array.astype(np.float32)
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     tdim = mesh.topology.dim
     gdim = mesh.geometry.dim
     num_cells = mesh.topology.index_map(tdim).size_local
-    coeffs = 1.0 * np.ones(num_cells)
+    coeffs = - 1.0 * np.ones(num_cells)
 
     pts, wts = basix.quadrature.make_quadrature(
         basix.CellType.hexahedron, Q[P], basix.QuadratureType.gll)
@@ -139,6 +139,7 @@ if __name__ == "__main__":
 
     # Initial called to JIT compile function
     stiffness_operator(u, coeffs, b, G, dofmap, dphi_1D, tp_order)
+    print(b[:10])
 
     # Timing stiffness operator function
     timing_stiffness_operator = np.empty(10)
