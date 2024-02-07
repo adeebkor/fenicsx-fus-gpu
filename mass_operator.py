@@ -5,6 +5,7 @@ import numba
 from mpi4py import MPI
 
 import basix
+import basix.ufl
 from dolfinx.fem import functionspace, Function
 from dolfinx.mesh import create_box, CellType
 
@@ -46,14 +47,14 @@ if __name__ == "__main__":
         (2, 2, 2), cell_type=CellType.hexahedron)
 
     # Tensor product representation
-    element = basix.create_element(
+    element = basix.ufl.element(
         basix.ElementFamily.P, mesh.basix_cell(), P,
         basix.LagrangeVariant.gll_warped
     )
     tp_order = np.array(element.get_tensor_product_representation()[0][1])
 
     # Create function space
-    V = functionspace(mesh, ("Lagrange", P))
+    V = functionspace(mesh, element)
     dofmap = V.dofmap.list
 
     # Create function
@@ -70,9 +71,9 @@ if __name__ == "__main__":
     cell_type = mesh.basix_cell()
 
     tdim = mesh.topology.dim
-    gdim = mesh.topology.dim
+    gdim = mesh.geometry.dim
     num_cells = mesh.topology.index_map(tdim).size_local
-    coeffs = 3*np.ones(num_cells)
+    coeffs = np.ones(num_cells)
 
     pts, wts = basix.quadrature.make_quadrature(
         basix.CellType.hexahedron, Q[P], basix.QuadratureType.gll
