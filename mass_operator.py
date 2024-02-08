@@ -6,8 +6,9 @@ from mpi4py import MPI
 
 import basix
 import basix.ufl
-from dolfinx.fem import functionspace, Function
+from dolfinx.fem import assemble_vector, functionspace, form, Function
 from dolfinx.mesh import create_box, CellType
+from ufl import inner, dx, TestFunction
 
 from precompute import compute_scaled_jacobian_determinant
 
@@ -92,6 +93,17 @@ if __name__ == "__main__":
 
     # Initial called to JIT compile function
     mass_operator(u, coeffs, b, detJ, dofmap, tp_order)
+
+    # Use DOLFINx assembler for comparison
+    md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
+
+    v = TestFunction(V)
+    u0.x.array[:] = 1.0
+    a_dolfinx = form(inner(u0, v) * dx(metadata=md))
+
+    b_dolfinx = assemble_vector(a_dolfinx)
+
+    np.testing.assert_allclose(b[:], b_dolfinx.array[:])
 
     # Timing mass operator function
     timing_mass_operator = np.empty(10)
