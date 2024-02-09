@@ -1,5 +1,3 @@
-from time import perf_counter_ns
-
 import numpy as np
 import numba
 
@@ -34,7 +32,7 @@ def stiffness_transform(Gc, coeff, fw0, fw1, fw2, nd):
         fw2[iq] = coeff * (G_[2] * w0 + G_[4] * w1 + G_[5] * w2)
 
 
-def stiffness_operator_einsum(x, coeffs, y, G, dofmap, tp_order, dphi, nd): 
+def stiffness_operator_einsum(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
     nc = coeffs.size
 
     for c in range(nc):
@@ -52,14 +50,14 @@ def stiffness_operator_einsum(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
 
         # Apply transform
         stiffness_transform(G[c], coeffs[c],
-                            T1.reshape(nd*nd*nd), 
-                            T2.reshape(nd*nd*nd), 
+                            T1.reshape(nd*nd*nd),
+                            T2.reshape(nd*nd*nd),
                             T3.reshape(nd*nd*nd), nd)
 
         # Apply contraction in the x-direction
         T1 = T1.reshape(nd, nd, nd)
         y0_ = np.einsum("qi,qjk->ijk", dphi, T1)
-        
+
         # Apply contraction in the y-direction
         T2 = T2.reshape(nd, nd, nd)
         y1_ = np.einsum("qj,iqk->ijk", dphi, T2)
@@ -69,7 +67,8 @@ def stiffness_operator_einsum(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
         y2_ = np.einsum("qk,ijq->ijk", dphi, T3)
 
         # Add contributions
-        y_ = y0_.reshape(nd*nd*nd) + y1_.reshape(nd*nd*nd) + y2_.reshape(nd*nd*nd)
+        y_ = y0_.reshape(nd*nd*nd) + y1_.reshape(nd*nd*nd) \
+            + y2_.reshape(nd*nd*nd)
         y[dofmap[c][tp_order]] += y_
 
 
@@ -91,7 +90,7 @@ def stiffness_operator(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
     y2_ = np.zeros((nd*nd*nd), np.float32)
 
     for c in range(nc):
-        
+
         T1[:] = 0.0
         T2[:] = 0.0
         T3[:] = 0.0
@@ -131,7 +130,7 @@ def stiffness_operator(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
 
         # Apply contraction in the x-direction
         contract(dphi, fw0, y0_, nd, nd, nd, nd, False)
-        
+
         # Apply contraction in the y-direction
         transpose(fw1, T1, nd, nd, nd, nd, nd*nd, 1)
         contract(dphi, T1, T2, nd, nd, nd, nd, False)

@@ -1,7 +1,6 @@
 from time import perf_counter_ns
 
 import numpy as np
-import numba
 from mpi4py import MPI
 
 import basix
@@ -54,7 +53,7 @@ dofmap = V.dofmap.list
 # Create function
 u0 = Function(V)
 u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
-          * np.sin(4*np.pi*x[2]))
+               * np.sin(4*np.pi*x[2]))
 u_0 = u0.x.array.astype(np.float32)
 
 # Output for stiffness operator
@@ -102,7 +101,8 @@ table_1D = element_1D.tabulate(1, pts_1D)
 dphi_1D = table_1D[1, :, :, 0]
 nd = dphi_1D.shape[1]
 
-stiffness_operator(u_0, coeffs, b_0, G, dofmap, tp_order, dphi_1D.flatten(), nd)
+stiffness_operator(u_0, coeffs, b_0, G, dofmap, tp_order, dphi_1D.flatten(),
+                   nd)
 stiffness_operator_einsum(u_0, coeffs, b_1, G, dofmap, tp_order, dphi_1D, nd)
 
 # b_0[abs(b_0) < 1e-6] = 0.0
