@@ -27,7 +27,7 @@ def contract(A, B, C, Nk, Na, Nb, Nc, bool):
 
 
 if __name__ == "__main__":
-    float_type = np.float32
+    float_type = np.float64
     N = 4
 
     a = np.random.rand(N*N).astype(float_type)
