@@ -62,7 +62,7 @@ def compute_scaled_geometrical_factor(G, mesh, dim, num_cell, dphi, weights):
             J_ = dphi[:, q, :] @ coord_dofs[:, :gdim]
 
             # Compute the geometrical factor
-            G_ = np.linalg.inv(J_) @ np.linalg.inv(J_).T
+            G_ = np.linalg.inv(J_).T @ np.linalg.inv(J_)
 
             # Compute the scaled Jacobian determinant
             sdetJ = np.fabs(np.linalg.det(J_)) * weights[q]
