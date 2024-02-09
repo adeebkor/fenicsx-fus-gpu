@@ -143,3 +143,33 @@ def stiffness_operator(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
 
         # Add contributions
         y[dofmap[c][tp_order]] += y0_ + y1_ + y2_
+
+
+@numba.njit(fastmath=True)
+def axpy(alpha, x, y):
+    """
+    axpy operation
+    """
+    for i in range(y.size):
+        y[i] = alpha*x[i] + y[i]
+
+
+@numba.njit
+def copy(a, b):
+    """
+    Copying array
+    """
+
+    for i in range(a.size):
+        b[i] = a[i]
+
+
+@numba.njit(fastmath=True)
+def pointwise_divide(a, b, c):
+    """
+    Pointwise divide operation
+    c[i] = a[i] / b[i]
+    """
+
+    for i in range(c.size):
+        c[i] = a[i] / b[i]
