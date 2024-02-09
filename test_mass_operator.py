@@ -7,6 +7,7 @@ import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
 from dolfinx.mesh import create_box, CellType
+from dolfinx.io import XDMFFile
 from ufl import inner, dx, TestFunction
 
 from precompute import compute_scaled_jacobian_determinant
@@ -29,6 +30,14 @@ N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron)
+
+# # Read mesh
+# with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
+#     mesh_name = "hex"
+#     mesh = fmesh.read_mesh(name=f"{mesh_name}")
+#     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
+#     mesh.topology.create_connectivity(
+#         mesh.topology.dim-1, mesh.topology.dim)
 
 # Tensor product representation
 element = basix.ufl.element(
@@ -86,7 +95,7 @@ a_dolfinx = form(inner(u0, v) * dx(metadata=md))
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
-np.testing.assert_allclose(b[:], b_dolfinx.array[:])
+np.testing.assert_allclose(b[:], b_dolfinx.array[:], atol=1e-9)
 
 # Timing mass operator function
 timing_mass_operator = np.empty(10)

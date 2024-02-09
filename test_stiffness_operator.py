@@ -8,6 +8,7 @@ import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
 from dolfinx.mesh import create_box, CellType
+from dolfinx.io import XDMFFile
 from ufl import inner, grad, dx, TestFunction
 
 from precompute import compute_scaled_geometrical_factor
@@ -31,6 +32,14 @@ mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron)
 
+# # Read mesh
+# with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
+#     mesh_name = "hex"
+#     mesh = fmesh.read_mesh(name=f"{mesh_name}")
+#     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
+#     mesh.topology.create_connectivity(
+#         mesh.topology.dim-1, mesh.topology.dim)
+
 # Tensor product representation
 element = basix.ufl.element(
     basix.ElementFamily.P, mesh.basix_cell(), P,
@@ -44,7 +53,7 @@ dofmap = V.dofmap.list
 
 # Create function
 u0 = Function(V)
-u0.interpolate(lambda x: 1000 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
+u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
           * np.sin(4*np.pi*x[2]))
 u_0 = u0.x.array.astype(np.float32)
 
@@ -81,7 +90,7 @@ G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=np.float32)
 
 compute_scaled_geometrical_factor(
         G, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
-    
+
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
     basix.ElementFamily.P, basix.CellType.interval, P,
@@ -96,10 +105,10 @@ nd = dphi_1D.shape[1]
 stiffness_operator(u_0, coeffs, b_0, G, dofmap, tp_order, dphi_1D.flatten(), nd)
 stiffness_operator_einsum(u_0, coeffs, b_1, G, dofmap, tp_order, dphi_1D, nd)
 
-b_0[abs(b_0) < 1e-6] = 0.0
-b_1[abs(b_1) < 1e-6] = 0.0
+# b_0[abs(b_0) < 1e-6] = 0.0
+# b_1[abs(b_1) < 1e-6] = 0.0
 
-np.testing.assert_allclose(b_0[:], b_1[:], rtol=1e-5, atol=1e-05)
+np.testing.assert_allclose(b_0[:], b_1[:], atol=1e-5)
 
 # Use DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
@@ -109,10 +118,10 @@ a_dolfinx = form(- inner(grad(u0), grad(v)) * dx(metadata=md))
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
-b_dolfinx.array[abs(b_dolfinx.array) < 1e-6] = 0.0
+# b_dolfinx.array[abs(b_dolfinx.array) < 1e-6] = 0.0
 
-np.testing.assert_allclose(b_0[:], b_dolfinx.array[:], rtol=1e-5, atol=1e-5)
-np.testing.assert_allclose(b_1[:], b_dolfinx.array[:], rtol=1e-5, atol=1e-5)
+np.testing.assert_allclose(b_0[:], b_dolfinx.array[:], atol=1e-5)
+np.testing.assert_allclose(b_1[:], b_dolfinx.array[:], atol=1e-5)
 
 # Timing stiffness operator function
 timing_stiffness_operator = np.zeros(10)
