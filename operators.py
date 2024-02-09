@@ -77,18 +77,18 @@ def stiffness_operator_einsum(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
 def stiffness_operator(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
     nc = coeffs.size
 
-    T1 = np.zeros((nd*nd*nd), np.float64)
-    T2 = np.zeros((nd*nd*nd), np.float64)
-    T3 = np.zeros((nd*nd*nd), np.float64)
-    T4 = np.zeros((nd*nd*nd), np.float64)
+    T1 = np.zeros((nd*nd*nd), np.float32)
+    T2 = np.zeros((nd*nd*nd), np.float32)
+    T3 = np.zeros((nd*nd*nd), np.float32)
+    T4 = np.zeros((nd*nd*nd), np.float32)
 
-    fw0 = np.zeros((nd*nd*nd), np.float64)
-    fw1 = np.zeros((nd*nd*nd), np.float64)
-    fw2 = np.zeros((nd*nd*nd), np.float64)
+    fw0 = np.zeros((nd*nd*nd), np.float32)
+    fw1 = np.zeros((nd*nd*nd), np.float32)
+    fw2 = np.zeros((nd*nd*nd), np.float32)
 
-    y0_ = np.zeros((nd*nd*nd), np.float64)
-    y1_ = np.zeros((nd*nd*nd), np.float64)
-    y2_ = np.zeros((nd*nd*nd), np.float64)
+    y0_ = np.zeros((nd*nd*nd), np.float32)
+    y1_ = np.zeros((nd*nd*nd), np.float32)
+    y2_ = np.zeros((nd*nd*nd), np.float32)
 
     for c in range(nc):
         

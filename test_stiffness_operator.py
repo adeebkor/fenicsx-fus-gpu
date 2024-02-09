@@ -46,16 +46,16 @@ dofmap = V.dofmap.list
 u0 = Function(V)
 u0.interpolate(lambda x: 1000 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
           * np.sin(4*np.pi*x[2]))
-u_0 = u0.x.array.astype(np.float64)
+u_0 = u0.x.array.astype(np.float32)
 
 # Output for stiffness operator
 b0 = Function(V)
-b_0 = b0.x.array.astype(np.float64)
+b_0 = b0.x.array.astype(np.float32)
 b_0[:] = 0.0
 
 # Output for stiffness operator (einsum)
 b1 = Function(V)
-b_1 = b1.x.array.astype(np.float64)
+b_1 = b1.x.array.astype(np.float32)
 b_1[:] = 0.0
 
 # Prepare input data to kernels
@@ -77,7 +77,7 @@ gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 nq = wts.size
-G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=np.float64)
+G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=np.float32)
 
 compute_scaled_geometrical_factor(
         G, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
@@ -96,7 +96,10 @@ nd = dphi_1D.shape[1]
 stiffness_operator(u_0, coeffs, b_0, G, dofmap, tp_order, dphi_1D.flatten(), nd)
 stiffness_operator_einsum(u_0, coeffs, b_1, G, dofmap, tp_order, dphi_1D, nd)
 
-np.testing.assert_allclose(b_0[:], b_1[:], atol=1e-12)
+b_0[abs(b_0) < 1e-6] = 0.0
+b_1[abs(b_1) < 1e-6] = 0.0
+
+np.testing.assert_allclose(b_0[:], b_1[:], rtol=1e-5, atol=1e-05)
 
 # Use DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
@@ -106,8 +109,10 @@ a_dolfinx = form(- inner(grad(u0), grad(v)) * dx(metadata=md))
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
-np.testing.assert_allclose(b_0[:], b_dolfinx.array[:], atol=1e-12)
-np.testing.assert_allclose(b_1[:], b_dolfinx.array[:], atol=1e-12)
+b_dolfinx.array[abs(b_dolfinx.array) < 1e-6] = 0.0
+
+np.testing.assert_allclose(b_0[:], b_dolfinx.array[:], rtol=1e-5, atol=1e-5)
+np.testing.assert_allclose(b_1[:], b_dolfinx.array[:], rtol=1e-5, atol=1e-5)
 
 # Timing stiffness operator function
 timing_stiffness_operator = np.zeros(10)

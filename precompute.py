@@ -24,7 +24,7 @@ def compute_scaled_jacobian_determinant(detJ, mesh, dim, num_cell, dphi,
     nc = num_cell  # Number of cells
     nq = weights.size  # Number of quadrature points
 
-    J_ = np.zeros((tdim, gdim), dtype=np.float64)
+    J_ = np.zeros((tdim, gdim), dtype=np.float32)
 
     # Compute the scaled Jacobian determinant
     for c in range(nc):
@@ -50,8 +50,8 @@ def compute_scaled_geometrical_factor(G, mesh, dim, num_cell, dphi, weights):
     nc = num_cell  # Number of cells
     nq = weights.size  # Number of quadrature points
 
-    J_ = np.zeros((tdim, gdim), dtype=np.float64)
-    G_ = np.zeros((tdim, gdim), dtype=np.float64)
+    J_ = np.zeros((tdim, gdim), dtype=np.float32)
+    G_ = np.zeros((tdim, gdim), dtype=np.float32)
 
     # Compute the scaled geometrical factor
     for c in range(nc):
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     table = element.tabulate(1, pts)
     dphi = table[1:, :, :, 0]
 
-    detJ = np.zeros((num_cell, wts.size), dtype=np.float64)
+    detJ = np.zeros((num_cell, wts.size), dtype=np.float32)
 
     # Time the implementations
 
@@ -143,7 +143,7 @@ if __name__ == "__main__":
         f"{timing_jacobian_det.std():.0f} μs"
     )
 
-    G = np.zeros((num_cell, wts.size, 3 * (gdim - 1)), dtype=np.float64)
+    G = np.zeros((num_cell, wts.size, 3 * (gdim - 1)), dtype=np.float32)
 
     # Initial called to JIT compile function
     compute_scaled_geometrical_factor(

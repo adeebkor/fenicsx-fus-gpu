@@ -25,9 +25,10 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
+N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-    (2, 2, 2), cell_type=CellType.hexahedron)
+    (N, N, N), cell_type=CellType.hexahedron)
 
 # Tensor product representation
 element = basix.ufl.element(
@@ -42,10 +43,10 @@ dofmap = V.dofmap.list
 
 # Create function
 u0 = Function(V)  # Input function
-u = u0.x.array.astype(np.float64)
+u = u0.x.array.astype(np.float32)
 u[:] = 1.0
 b0 = Function(V)  # Output function
-b = b0.x.array.astype(np.float64)
+b = b0.x.array.astype(np.float32)
 b[:] = 0.0
 
 # Prepare input data to kernels
@@ -68,7 +69,7 @@ gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 nq = wts.size
-detJ = np.zeros((num_cells, nq), dtype=np.float64)
+detJ = np.zeros((num_cells, nq), dtype=np.float32)
 
 compute_scaled_jacobian_determinant(
     detJ, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
