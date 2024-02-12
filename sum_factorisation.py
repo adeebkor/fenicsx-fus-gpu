@@ -1,6 +1,8 @@
 import numpy as np
 import numba
 
+float_type = np.float64
+
 
 @numba.njit(fastmath=True)
 def transpose(A, B, Na, Nb, Nc, offa, offb, offc):
@@ -27,7 +29,7 @@ def contract(A, B, C, Nk, Na, Nb, Nc, bool):
 
 
 if __name__ == "__main__":
-    float_type = np.float64
+    float_type = float_type
     N = 4
 
     a = np.random.rand(N*N).astype(float_type)

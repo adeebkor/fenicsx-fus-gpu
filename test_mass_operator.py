@@ -13,6 +13,8 @@ from ufl import inner, dx, TestFunction
 from precompute import compute_scaled_jacobian_determinant
 from operators import mass_operator
 
+float_type = np.float64
+
 P = 5  # Basis function order
 Q = {
     2: 3,
@@ -29,7 +31,7 @@ Q = {
 N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, dtype=np.float64)
+    (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
 
 # # Read mesh
 # with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
@@ -51,10 +53,10 @@ V = functionspace(mesh, element)
 dofmap = V.dofmap.list
 
 # Create function
-u0 = Function(V, dtype=np.float64)  # Input function
+u0 = Function(V, dtype=float_type)  # Input function
 u = u0.x.array
 u[:] = 1.0
-b0 = Function(V, dtype=np.float64)  # Output function
+b0 = Function(V, dtype=float_type)  # Output function
 b = b0.x.array
 b[:] = 0.0
 
@@ -66,18 +68,18 @@ cell_type = mesh.basix_cell()
 tdim = mesh.topology.dim
 gdim = mesh.geometry.dim
 num_cells = mesh.topology.index_map(tdim).size_local
-coeffs = np.ones(num_cells, dtype=np.float64)
+coeffs = np.ones(num_cells, dtype=float_type)
 
 pts, wts = basix.quadrature.make_quadrature(
     basix.CellType.hexahedron, Q[P], basix.QuadratureType.gll)
 
 gelement = basix.create_element(
-    basix.ElementFamily.P, mesh.basix_cell(), 1, dtype=np.float64)
+    basix.ElementFamily.P, mesh.basix_cell(), 1, dtype=float_type)
 gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 nq = wts.size
-detJ = np.zeros((num_cells, nq), dtype=np.float64)
+detJ = np.zeros((num_cells, nq), dtype=float_type)
 
 compute_scaled_jacobian_determinant(
     detJ, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
@@ -90,7 +92,7 @@ md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
 
 v = TestFunction(V)
 u0.x.array[:] = 1.0
-a_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=np.float64)
+a_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
 
 b_dolfinx = assemble_vector(a_dolfinx)
 

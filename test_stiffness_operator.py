@@ -13,6 +13,8 @@ from ufl import inner, grad, dx, TestFunction
 from precompute import compute_scaled_geometrical_factor
 from operators import stiffness_operator_einsum, stiffness_operator
 
+float_type = np.float64
+
 P = 5  # Basis function order
 Q = {
     2: 3,
@@ -29,7 +31,7 @@ Q = {
 N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, dtype=np.float64)
+    (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
 
 # # Read mesh
 # with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
@@ -51,18 +53,18 @@ V = functionspace(mesh, element)
 dofmap = V.dofmap.list
 
 # Create function
-u0 = Function(V, dtype=np.float64)
+u0 = Function(V, dtype=float_type)
 u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
                * np.sin(4*np.pi*x[2]))
 u_0 = u0.x.array
 
 # Output for stiffness operator
-b0 = Function(V, dtype=np.float64)
+b0 = Function(V, dtype=float_type)
 b_0 = b0.x.array
 b_0[:] = 0.0
 
 # Output for stiffness operator (einsum)
-b1 = Function(V, dtype=np.float64)
+b1 = Function(V, dtype=float_type)
 b_1 = b1.x.array
 b_1[:] = 0.0
 
@@ -74,18 +76,18 @@ cell_type = mesh.basix_cell()
 tdim = mesh.topology.dim
 gdim = mesh.geometry.dim
 num_cells = mesh.topology.index_map(tdim).size_local
-coeffs = - 1.0 * np.ones(num_cells, dtype=np.float64)
+coeffs = - 1.0 * np.ones(num_cells, dtype=float_type)
 
 pts, wts = basix.quadrature.make_quadrature(
     basix.CellType.hexahedron, Q[P], basix.QuadratureType.gll)
 
 gelement = basix.create_element(
-    basix.ElementFamily.P, mesh.basix_cell(), 1, dtype=np.float64)
+    basix.ElementFamily.P, mesh.basix_cell(), 1, dtype=float_type)
 gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 nq = wts.size
-G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=np.float64)
+G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 
 compute_scaled_geometrical_factor(
         G, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
@@ -93,10 +95,10 @@ compute_scaled_geometrical_factor(
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
     basix.ElementFamily.P, basix.CellType.interval, P,
-    basix.LagrangeVariant.gll_warped, dtype=np.float64)
+    basix.LagrangeVariant.gll_warped, dtype=float_type)
 pts_1D, wts_1D = basix.quadrature.make_quadrature(
     basix.CellType.interval, Q[P], basix.QuadratureType.gll)
-pts_1D, wts_1D = pts_1D.astype(np.float64), wts_1D.astype(np.float64)
+pts_1D, wts_1D = pts_1D.astype(float_type), wts_1D.astype(float_type)
 
 table_1D = element_1D.tabulate(1, pts_1D)
 dphi_1D = table_1D[1, :, :, 0]
@@ -115,7 +117,8 @@ np.testing.assert_allclose(b_0[:], b_1[:], atol=1e-10)
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
 
 v = TestFunction(V)
-a_dolfinx = form(- inner(grad(u0), grad(v)) * dx(metadata=md), dtype=np.float64)
+a_dolfinx = form(- inner(grad(u0), grad(v)) * dx(metadata=md),
+                 dtype=float_type)
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
