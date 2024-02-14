@@ -3,6 +3,8 @@ import numba
 
 from sum_factorisation import contract, transpose
 
+float_type = np.float64
+
 
 @numba.njit(fastmath=True)
 def mass_operator(x, coeffs, y, detJ, dofmap, tp_order):
@@ -76,18 +78,19 @@ def stiffness_operator_einsum(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
 def stiffness_operator(x, coeffs, y, G, dofmap, tp_order, dphi, nd):
     nc = coeffs.size
 
-    T1 = np.zeros((nd*nd*nd), np.float64)
-    T2 = np.zeros((nd*nd*nd), np.float64)
-    T3 = np.zeros((nd*nd*nd), np.float64)
-    T4 = np.zeros((nd*nd*nd), np.float64)
+    # Initialise temporaries
+    T1 = np.zeros((nd*nd*nd), float_type)
+    T2 = np.zeros((nd*nd*nd), float_type)
+    T3 = np.zeros((nd*nd*nd), float_type)
+    T4 = np.zeros((nd*nd*nd), float_type)
 
-    fw0 = np.zeros((nd*nd*nd), np.float64)
-    fw1 = np.zeros((nd*nd*nd), np.float64)
-    fw2 = np.zeros((nd*nd*nd), np.float64)
+    fw0 = np.zeros((nd*nd*nd), float_type)
+    fw1 = np.zeros((nd*nd*nd), float_type)
+    fw2 = np.zeros((nd*nd*nd), float_type)
 
-    y0_ = np.zeros((nd*nd*nd), np.float64)
-    y1_ = np.zeros((nd*nd*nd), np.float64)
-    y2_ = np.zeros((nd*nd*nd), np.float64)
+    y0_ = np.zeros((nd*nd*nd), float_type)
+    y1_ = np.zeros((nd*nd*nd), float_type)
+    y2_ = np.zeros((nd*nd*nd), float_type)
 
     for c in range(nc):
 
