@@ -33,20 +33,21 @@ mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
 
-# # Read mesh
-# with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
-#     mesh_name = "hex"
-#     mesh = fmesh.read_mesh(name=f"{mesh_name}")
-#     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
-#     mesh.topology.create_connectivity(
-#         mesh.topology.dim-1, mesh.topology.dim)
+# Mesh geometry data
+x_dofs = mesh.geometry.dofmap
+x_g = mesh.geometry.x
+cell_type = mesh.basix_cell()
 
-# Tensor product representation
-element = basix.ufl.element(
+# Uncomment below if we would like to test unstructured mesh
+mesh.geometry.x[:, :] += np.random.uniform(
+    -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
+
+# Tensor product element
+basix_element = basix.create_tp_element(
     basix.ElementFamily.P, mesh.basix_cell(), P,
     basix.LagrangeVariant.gll_warped
 )
-tp_order = np.array(element.get_tensor_product_representation()[0][1])
+element = basix.ufl._BasixElement(basix_element)
 
 # Create function space
 V = functionspace(mesh, element)
@@ -59,11 +60,6 @@ u[:] = 1.0
 b0 = Function(V, dtype=float_type)  # Output function
 b = b0.x.array
 b[:] = 0.0
-
-# Prepare input data to kernels
-x_dofs = mesh.geometry.dofmap
-x_g = mesh.geometry.x
-cell_type = mesh.basix_cell()
 
 tdim = mesh.topology.dim
 gdim = mesh.geometry.dim
@@ -85,7 +81,7 @@ compute_scaled_jacobian_determinant(
     detJ, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
 
 # Initial called to JIT compile function
-mass_operator(u, coeffs, b, detJ, dofmap, tp_order)
+mass_operator(u, coeffs, b, detJ, dofmap)
 
 # Use DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
@@ -96,6 +92,11 @@ a_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
+# Check the difference between the vectors
+print("Euclidean difference: ", 
+      np.linalg.norm(b - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
+
+# Test the closeness between the vectors
 np.testing.assert_allclose(b[:], b_dolfinx.array[:], atol=1e-9)
 
 # Timing mass operator function
@@ -103,7 +104,7 @@ timing_mass_operator = np.empty(10)
 for i in range(timing_mass_operator.size):
     b[:] = 0.0
     tic = perf_counter_ns()
-    mass_operator(u, coeffs, b, detJ, dofmap, tp_order)
+    mass_operator(u, coeffs, b, detJ, dofmap)
     toc = perf_counter_ns()
     timing_mass_operator[i] = toc - tic
 

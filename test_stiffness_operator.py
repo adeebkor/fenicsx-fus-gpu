@@ -11,7 +11,7 @@ from dolfinx.io import XDMFFile
 from ufl import inner, grad, dx, TestFunction
 
 from precompute import compute_scaled_geometrical_factor
-from operators import stiffness_operator_einsum, stiffness_operator
+from operators import stiffness_operator
 
 float_type = np.float64
 
@@ -33,20 +33,21 @@ mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
 
-# # Read mesh
-# with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
-#     mesh_name = "hex"
-#     mesh = fmesh.read_mesh(name=f"{mesh_name}")
-#     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
-#     mesh.topology.create_connectivity(
-#         mesh.topology.dim-1, mesh.topology.dim)
+# Mesh geometry data
+x_dofs = mesh.geometry.dofmap
+x_g = mesh.geometry.x
+cell_type = mesh.basix_cell()
 
-# Tensor product representation
-element = basix.ufl.element(
+# Uncomment below if we would like to test unstructured mesh
+mesh.geometry.x[:, :] += np.random.uniform(
+    -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
+
+# Tensor product element
+basix_element = basix.create_tp_element(
     basix.ElementFamily.P, mesh.basix_cell(), P,
     basix.LagrangeVariant.gll_warped
 )
-tp_order = np.array(element.get_tensor_product_representation()[0][1])
+element = basix.ufl._BasixElement(basix_element)
 
 # Create function space
 V = functionspace(mesh, element)
@@ -67,11 +68,6 @@ b_0[:] = 0.0
 b1 = Function(V, dtype=float_type)
 b_1 = b1.x.array
 b_1[:] = 0.0
-
-# Prepare input data to kernels
-x_dofs = mesh.geometry.dofmap
-x_g = mesh.geometry.x
-cell_type = mesh.basix_cell()
 
 tdim = mesh.topology.dim
 gdim = mesh.geometry.dim
@@ -104,14 +100,8 @@ table_1D = element_1D.tabulate(1, pts_1D)
 dphi_1D = table_1D[1, :, :, 0]
 nd = dphi_1D.shape[1]
 
-stiffness_operator(u_0, coeffs, b_0, G, dofmap, tp_order, dphi_1D.flatten(),
-                   nd)
-stiffness_operator_einsum(u_0, coeffs, b_1, G, dofmap, tp_order, dphi_1D, nd)
+stiffness_operator(u_0, coeffs, b_0, G, dofmap, dphi_1D.flatten(), nd)
 
-# b_0[abs(b_0) < 1e-6] = 0.0
-# b_1[abs(b_1) < 1e-6] = 0.0
-
-np.testing.assert_allclose(b_0[:], b_1[:], atol=1e-10)
 
 # Use DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
@@ -122,18 +112,19 @@ a_dolfinx = form(- inner(grad(u0), grad(v)) * dx(metadata=md),
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
-# b_dolfinx.array[abs(b_dolfinx.array) < 1e-6] = 0.0
+# Check the difference between the vectors
+print("Euclidean difference: ", 
+      np.linalg.norm(b_0 - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
 
+# Test the closeness between the vectors
 np.testing.assert_allclose(b_0[:], b_dolfinx.array[:], atol=1e-10)
-np.testing.assert_allclose(b_1[:], b_dolfinx.array[:], atol=1e-10)
 
 # Timing stiffness operator function
 timing_stiffness_operator = np.zeros(10)
 for i in range(timing_stiffness_operator.size):
     b_0[:] = 0.0
     tic = perf_counter_ns()
-    stiffness_operator(u_0, coeffs, b_0, G, dofmap, tp_order,
-                       dphi_1D.flatten(), nd)
+    stiffness_operator(u_0, coeffs, b_0, G, dofmap, dphi_1D.flatten(), nd)
     toc = perf_counter_ns()
     timing_stiffness_operator[i] = toc - tic
 
@@ -143,19 +134,3 @@ print(
     f"Elapsed time (stiffness operator): "
     f"{timing_stiffness_operator.mean():.0f} ± "
     f"{timing_stiffness_operator.std():.0f} μs")
-
-timing_stiffness_operator_einsum = np.zeros(10)
-for i in range(timing_stiffness_operator_einsum.size):
-    b_1[:] = 0.0
-    tic = perf_counter_ns()
-    stiffness_operator_einsum(u_0, coeffs, b_1, G, dofmap, tp_order,
-                              dphi_1D, nd)
-    toc = perf_counter_ns()
-    timing_stiffness_operator_einsum[i] = toc - tic
-
-timing_stiffness_operator_einsum *= 1e-3
-
-print(
-    f"Elapsed time (stiffness operator (einsum)): "
-    f"{timing_stiffness_operator_einsum.mean():.0f} ± "
-    f"{timing_stiffness_operator_einsum.std():.0f} μs")
