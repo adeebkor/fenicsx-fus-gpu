@@ -10,7 +10,16 @@ from dolfinx.mesh import create_box, locate_entities_boundary, CellType
 from dolfinx.io import XDMFFile
 from ufl import inner, ds, TestFunction
 
-P = 3  # Basis function order
+from pathlib import Path
+
+cache_dir = f"{str(Path.cwd())}/.cache"
+print(f"Directory to put C files in: {cache_dir}")
+
+jit_options = {"cache_dir": cache_dir}
+
+float_type = np.float64
+
+P = 2  # Basis function order
 Q = {
     2: 3,
     3: 4,
@@ -23,9 +32,7 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-float_type = np.float64
-
-N = 8
+N = 1
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
@@ -36,21 +43,15 @@ x_g = mesh.geometry.x
 cell_type = mesh.basix_cell()
 
 # If we would like to test unstructured mesh, uncomment below
-# mesh.geometry.x[:, :] += np.random.uniform(
-#     -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
+mesh.geometry.x[:, :] += np.random.uniform(
+    -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
 
-# Tensor product representation
-element = basix.ufl.element(
+# Tensor product element
+basix_element = basix.create_tp_element(
     basix.ElementFamily.P, mesh.basix_cell(), P,
     basix.LagrangeVariant.gll_warped
 )
-tp_order = np.array(element.get_tensor_product_representation()[0][1])
-
-element_q = basix.ufl.element(
-    basix.ElementFamily.P, basix.CellType.quadrilateral, P,
-    basix.LagrangeVariant.gll_warped
-)
-tp_order_q = np.array(element_q.get_tensor_product_representation()[0][1])
+element = basix.ufl._BasixElement(basix_element)
 
 # Create function space
 V = functionspace(mesh, element)
@@ -74,7 +75,7 @@ num_cells = mesh.topology.index_map(tdim).size_local
 coeffs = np.ones(num_cells, dtype=float_type)
 
 gelement = basix.create_element(
-    basix.ElementFamily.P, mesh.basix_cell(), 1)
+    basix.ElementFamily.P, mesh.basix_cell(), 1, dtype=float_type)
 
 # Find the cells that contains the boundary facets
 cell_to_facet_map = mesh.topology.connectivity(
@@ -98,8 +99,7 @@ for i, (facet, cell) in enumerate(boundary_facet_cell.items()):
     facet_data[i, 2] = facet
 
 # Get the local DOF on the facets
-element = V.element.basix_element
-local_facet_dof = np.array(element.entity_closure_dofs[2], dtype=np.int32)
+local_facet_dof = np.array(basix_element.entity_closure_dofs[2], dtype=np.int32)
 
 # Map of the hexahedron reference facet Jacobian
 hexahedron_reference_facet_jacobian = np.array(
@@ -125,12 +125,12 @@ pts_0 = pts_f[:, 0]
 pts_1 = pts_f[:, 1]
 
 pts_f = np.zeros((6, nq_f, 3), dtype=float_type)
-pts_f[0, :, :] = np.c_[pts_0, pts_1, np.zeros(nq_f, dtype=float_type)]
-pts_f[1, :, :] = np.c_[pts_0, np.zeros(nq_f, dtype=float_type), pts_1]
-pts_f[2, :, :] = np.c_[np.zeros(nq_f, dtype=float_type), pts_0, pts_1]
-pts_f[3, :, :] = np.c_[np.ones(nq_f, dtype=float_type), pts_0, pts_1]
-pts_f[4, :, :] = np.c_[pts_0, np.ones(nq_f, dtype=float_type), pts_1]
-pts_f[5, :, :] = np.c_[pts_0, pts_1, np.ones(nq_f, dtype=float_type)]
+pts_f[0, :, :] = np.c_[pts_0, pts_1, np.zeros(nq_f, dtype=float_type)]  # z = 0
+pts_f[1, :, :] = np.c_[pts_0, np.zeros(nq_f, dtype=float_type), pts_1]  # y = 0
+pts_f[2, :, :] = np.c_[np.zeros(nq_f, dtype=float_type), pts_0, pts_1]  # x = 0
+pts_f[3, :, :] = np.c_[np.ones(nq_f, dtype=float_type), pts_0, pts_1]  # x = 1
+pts_f[4, :, :] = np.c_[pts_0, np.ones(nq_f, dtype=float_type), pts_1]  # y = 1
+pts_f[5, :, :] = np.c_[pts_0, pts_1, np.ones(nq_f, dtype=float_type)]  # z = 1
 
 # Evaluate the derivatives on the facets of the reference hexahedron
 dphi_f = np.zeros((6, 3, nq_f, 8), dtype=float_type)
@@ -160,18 +160,19 @@ for i, (local_facet, cell, facet) in enumerate(facet_data):
 
 # Compute the boundary operator
 for i, (local_facet, cell, facet) in enumerate(facet_data):
-    x_ = u[dofmap[cell][local_facet_dof[local_facet]][tp_order_q]]
+    x_ = u[dofmap[cell][local_facet_dof[local_facet]]]
 
     x_ *= detJ_f[i, :] * coeffs[cell]
 
-    b[dofmap[cell][local_facet_dof[local_facet]][tp_order_q]] += x_
+    b[dofmap[cell][local_facet_dof[local_facet]]] += x_
 
 # Use DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
 
 v = TestFunction(V)
 u0.x.array[:] = 1.0
-a_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
+a_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type,
+                 jit_options=jit_options)
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
