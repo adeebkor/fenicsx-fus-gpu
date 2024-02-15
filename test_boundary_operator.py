@@ -19,7 +19,7 @@ jit_options = {"cache_dir": cache_dir}
 
 float_type = np.float64
 
-P = 2  # Basis function order
+P = 3  # Basis function order
 Q = {
     2: 3,
     3: 4,
@@ -32,7 +32,7 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-N = 1
+N = 8
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
@@ -42,7 +42,7 @@ x_dofs = mesh.geometry.dofmap
 x_g = mesh.geometry.x
 cell_type = mesh.basix_cell()
 
-# If we would like to test unstructured mesh, uncomment below
+# Uncomment below if we would like to test unstructured mesh
 mesh.geometry.x[:, :] += np.random.uniform(
     -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
 
@@ -139,8 +139,6 @@ for f in range(6):
     gtable_f = gelement.tabulate(1, pts_f[f, :, :]).astype(float_type)
     dphi_f[f, :, :, :] = gtable_f[1:, :, :, 0]
 
-dphi_f[abs(dphi_f) < 1e-10] = 0.0
-
 # Compute the determinant of the Jacobian on the boundary facets
 detJ_f = np.zeros((facet_data.shape[0], nq_f), 
                   dtype=float_type)
@@ -153,10 +151,11 @@ for i, (local_facet, cell, facet) in enumerate(facet_data):
 
         J_cell = dphi_[:, q, :] @ coord_dofs[:, :gdim]
 
-        J_facet = J_cell @ hexahedron_reference_facet_jacobian[local_facet]
+        J_facet = J_cell.T @ hexahedron_reference_facet_jacobian[local_facet]
 
-        detJ_f[i, q] = np.linalg.norm(
-            np.cross(J_facet[:, 0], J_facet[:, 1])) * wts_f[q]
+        detJ = np.linalg.norm(np.cross(J_facet[:, 1], J_facet[:, 0]))
+
+        detJ_f[i, q] = detJ * wts_f[q]
 
 # Compute the boundary operator
 for i, (local_facet, cell, facet) in enumerate(facet_data):
