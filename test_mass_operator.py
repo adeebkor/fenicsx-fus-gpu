@@ -15,7 +15,12 @@ from operators import mass_operator
 
 float_type = np.float64
 
-P = 5  # Basis function order
+if isinstance(float_type, np.float64):
+    tol = 1e-12
+else:
+    tol = 1e-6
+
+P = 4  # Basis function order
 Q = {
     2: 3,
     3: 4,
@@ -77,8 +82,7 @@ dphi = gtable[1:, :, :, 0]
 nq = wts.size
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 
-compute_scaled_jacobian_determinant(
-    detJ, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
+compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
 # Initial called to JIT compile function
 mass_operator(u, coeffs, b, detJ, dofmap)
@@ -97,7 +101,7 @@ print("Euclidean difference: ",
       np.linalg.norm(b - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
 
 # Test the closeness between the vectors
-np.testing.assert_allclose(b[:], b_dolfinx.array[:], atol=1e-9)
+np.testing.assert_allclose(b[:], b_dolfinx.array[:], atol=tol)
 
 # Timing mass operator function
 timing_mass_operator = np.empty(10)

@@ -10,16 +10,17 @@ from dolfinx.mesh import create_box, locate_entities_boundary, CellType
 from dolfinx.io import XDMFFile
 from ufl import inner, ds, TestFunction
 
-from pathlib import Path
-
-cache_dir = f"{str(Path.cwd())}/.cache"
-print(f"Directory to put C files in: {cache_dir}")
-
-jit_options = {"cache_dir": cache_dir}
+from precompute import compute_boundary_facets_scaled_jacobian_determinant
+from operators import boundary_facet_operator
 
 float_type = np.float64
 
-P = 3  # Basis function order
+if isinstance(float_type, np.float64):
+    tol = 1e-12
+else:
+    tol = 1e-6
+
+P = 4  # Basis function order
 Q = {
     2: 3,
     3: 4,
@@ -32,7 +33,7 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-N = 8
+N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
@@ -89,29 +90,19 @@ for boundary_facet in boundary_facets:
     boundary_facet_cell[boundary_facet] = facet_to_cell_map.links(boundary_facet)[0]
 
 # Create an array that contains all the boundary facet data
-facet_data = np.zeros((boundary_facets.size, 3), dtype=np.int32)
+boundary_data = np.zeros((boundary_facets.size, 2), dtype=np.int32)
 
 for i, (facet, cell) in enumerate(boundary_facet_cell.items()):
     facets = cell_to_facet_map.links(cell) 
     local_facet = np.where(facet == facets)
-    facet_data[i, 0] = local_facet[0][0]
-    facet_data[i, 1] = cell
-    facet_data[i, 2] = facet
+    boundary_data[i, 0] = cell
+    boundary_data[i, 1] = local_facet[0][0]
 
 # Get the local DOF on the facets
 local_facet_dof = np.array(basix_element.entity_closure_dofs[2], dtype=np.int32)
 
-# Map of the hexahedron reference facet Jacobian
-hexahedron_reference_facet_jacobian = np.array(
-    [[[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]],
-     [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
-     [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
-     [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
-     [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
-     [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]])
-
 # Compute the determinant of the Jacobian on the boundary facets
-num_boundary_cells = np.unique(facet_data[:, 1]).size
+num_boundary_cells = np.unique(boundary_data[:, 1]).size
 num_boundary_facets = boundary_facets.size
 
 # Get the quadrature points and weights on the reference facet
@@ -140,38 +131,22 @@ for f in range(6):
     dphi_f[f, :, :, :] = gtable_f[1:, :, :, 0]
 
 # Compute the determinant of the Jacobian on the boundary facets
-detJ_f = np.zeros((facet_data.shape[0], nq_f), 
+detJ_f = np.zeros((boundary_data.shape[0], nq_f), 
                   dtype=float_type)
 
-for i, (local_facet, cell, facet) in enumerate(facet_data):
-    coord_dofs = x_g[x_dofs[cell]]
-
-    for q in range(nq_f):
-        dphi_ = dphi_f[local_facet]
-
-        J_cell = dphi_[:, q, :] @ coord_dofs[:, :gdim]
-
-        J_facet = J_cell.T @ hexahedron_reference_facet_jacobian[local_facet]
-
-        detJ = np.linalg.norm(np.cross(J_facet[:, 1], J_facet[:, 0]))
-
-        detJ_f[i, q] = detJ * wts_f[q]
+compute_boundary_facets_scaled_jacobian_determinant(
+    detJ_f, (x_dofs, x_g), boundary_data, dphi_f, wts_f)
 
 # Compute the boundary operator
-for i, (local_facet, cell, facet) in enumerate(facet_data):
-    x_ = u[dofmap[cell][local_facet_dof[local_facet]]]
-
-    x_ *= detJ_f[i, :] * coeffs[cell]
-
-    b[dofmap[cell][local_facet_dof[local_facet]]] += x_
+boundary_facet_operator(
+    u, coeffs, b, detJ_f, dofmap, boundary_data, local_facet_dof)
 
 # Use DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
 
 v = TestFunction(V)
 u0.x.array[:] = 1.0
-a_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type,
-                 jit_options=jit_options)
+a_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 
 b_dolfinx = assemble_vector(a_dolfinx)
 
@@ -180,4 +155,4 @@ print("Euclidean difference: ",
       np.linalg.norm(b - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
 
 # Test the closeness between the vectors
-np.testing.assert_allclose(b, b_dolfinx.array)
+np.testing.assert_allclose(b, b_dolfinx.array, rtol=tol, atol=tol)

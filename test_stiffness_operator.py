@@ -15,7 +15,12 @@ from operators import stiffness_operator
 
 float_type = np.float64
 
-P = 5  # Basis function order
+if isinstance(float_type, np.float64):
+    tol = 1e-12
+else:
+    tol = 1e-6
+
+P = 4  # Basis function order
 Q = {
     2: 3,
     3: 4,
@@ -61,8 +66,8 @@ u_0 = u0.x.array
 
 # Output for stiffness operator
 b0 = Function(V, dtype=float_type)
-b_0 = b0.x.array
-b_0[:] = 0.0
+b = b0.x.array
+b[:] = 0.0
 
 # Output for stiffness operator (einsum)
 b1 = Function(V, dtype=float_type)
@@ -85,8 +90,7 @@ dphi = gtable[1:, :, :, 0]
 nq = wts.size
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 
-compute_scaled_geometrical_factor(
-        G, (x_dofs, x_g), (tdim, gdim), num_cells, dphi, wts)
+compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
@@ -100,8 +104,7 @@ table_1D = element_1D.tabulate(1, pts_1D)
 dphi_1D = table_1D[1, :, :, 0]
 nd = dphi_1D.shape[1]
 
-stiffness_operator(u_0, coeffs, b_0, G, dofmap, dphi_1D.flatten(), nd)
-
+stiffness_operator(u_0, coeffs, b, G, dofmap, dphi_1D.flatten(), nd)
 
 # Use DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
@@ -114,17 +117,17 @@ b_dolfinx = assemble_vector(a_dolfinx)
 
 # Check the difference between the vectors
 print("Euclidean difference: ", 
-      np.linalg.norm(b_0 - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
+      np.linalg.norm(b - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
 
 # Test the closeness between the vectors
-np.testing.assert_allclose(b_0[:], b_dolfinx.array[:], atol=1e-10)
+np.testing.assert_allclose(b[:], b_dolfinx.array[:], rtol=tol, atol=tol)
 
 # Timing stiffness operator function
 timing_stiffness_operator = np.zeros(10)
 for i in range(timing_stiffness_operator.size):
-    b_0[:] = 0.0
+    b[:] = 0.0
     tic = perf_counter_ns()
-    stiffness_operator(u_0, coeffs, b_0, G, dofmap, dphi_1D.flatten(), nd)
+    stiffness_operator(u_0, coeffs, b, G, dofmap, dphi_1D.flatten(), nd)
     toc = perf_counter_ns()
     timing_stiffness_operator[i] = toc - tic
 
