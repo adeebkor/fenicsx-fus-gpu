@@ -1,3 +1,14 @@
+"""
+=========
+Operators
+=========
+
+This file contains the kernels for vector assembly. It includes the 
+boundary facet, mass, and stiffness kernels.
+
+Copyright (C) 2024 Adeeb Arif Kor
+"""
+
 import numpy as np
 import numba
 
@@ -7,36 +18,104 @@ float_type = np.float64
 
 
 @numba.njit(fastmath=True)
-def mass_operator(x, coeffs, y, detJ, dofmap):
-    nc = coeffs.size
+def boundary_facet_operator(x, cell_constants, y, detJ_f, dofmap, boundary_data, 
+                            local_facet_dof):
+    """
+    Perform the vector assembly of the boundary facets operator.
 
-    for c in range(nc):
+    Parameters
+    ----------
+    x : input vector
+    cell_constant : constant values that are defined for each cell.
+    y : output vector
+    detJ_f : scaled Jacobian determinant on the cell facets.
+    dofmap : degrees-of-freedom map
+    boundary_data : array containing the cells and local facets indices on the 
+        boundary.
+    local_facet_dof : the local degrees-of-freedom on the facet.
+    """
+
+    for i, (cell, local_facet) in enumerate(boundary_data):
         # Pack coefficients
-        x_ = x[dofmap[c]]
+        x_ = x[dofmap[cell][local_facet_dof[local_facet]]]
 
         # Apply transform
-        x_ *= detJ[c] * coeffs[c]
+        x_ *= detJ_f[i, :] * cell_constants[cell]
 
         # Add contributions
-        y[dofmap[c]] += x_
+        y[dofmap[cell][local_facet_dof[local_facet]]] += x_
 
 
 @numba.njit(fastmath=True)
-def stiffness_transform(Gc, coeff, fw0, fw1, fw2, nd):
-    for iq in range(nd*nd*nd):
-        G_ = Gc[iq]
-        w0 = fw0[iq]
-        w1 = fw1[iq]
-        w2 = fw2[iq]
+def mass_operator(x, cell_constants, y, detJ, dofmap):
+    """
+    Perform the vector assembly of the mass operator.
 
-        fw0[iq] = coeff * (G_[0] * w0 + G_[1] * w1 + G_[2] * w2)
-        fw1[iq] = coeff * (G_[1] * w0 + G_[3] * w1 + G_[4] * w2)
-        fw2[iq] = coeff * (G_[2] * w0 + G_[4] * w1 + G_[5] * w2)
+    Parameters
+    ----------
+    x : input vector
+    cell_constant : constant values that are defined for each cell.
+    y : output vector
+    detJ : scaled Jacobian determinant
+    dofmap : degrees-of-freedom map
+    """
+
+    num_cell = cell_constants.size  
+
+    for cell in range(num_cell):
+        # Pack coefficients
+        x_ = x[dofmap[cell]]
+
+        # Apply transform
+        x_ *= detJ[cell] * cell_constants[cell]
+
+        # Add contributions
+        y[dofmap[cell]] += x_
 
 
 @numba.njit(fastmath=True)
-def stiffness_operator(x, coeffs, y, G, dofmap, dphi, nd):
-    nc = coeffs.size
+def stiffness_transform(Gc, cell_constant, fw0, fw1, fw2, nq):
+    """
+    Geometric transformation
+
+    Parameters
+    ----------
+    Gc : scaled geometric matrix
+    cell_constant : constant value defined for the cell.
+    fw0 : array
+    fw1 : array
+    fw2 : array
+    nq : number of quadrature points in 1D
+    """
+
+    for q in range(nq*nq*nq):
+        G_ = Gc[q]
+        w0 = fw0[q]
+        w1 = fw1[q]
+        w2 = fw2[q]
+
+        fw0[q] = cell_constant * (G_[0] * w0 + G_[1] * w1 + G_[2] * w2)
+        fw1[q] = cell_constant * (G_[1] * w0 + G_[3] * w1 + G_[4] * w2)
+        fw2[q] = cell_constant * (G_[2] * w0 + G_[4] * w1 + G_[5] * w2)
+
+
+@numba.njit(fastmath=True)
+def stiffness_operator(x, cell_constants, y, G, dofmap, dphi, nd):
+    """"
+    Perform the vector assembly of the stiffness operator.
+
+    Parameters
+    ----------
+    x : input vector
+    cell_constant : constant values that are defined for each cell.
+    y : output vector
+    G : geometric transformation data
+    dofmap : degrees-of-freedom map
+    dphi : derivatives of the 1D basis functions
+    nd : number of degrees-of-freedom in 1D
+    """
+
+    num_cell = cell_constants.size
 
     # Initialise temporaries
     T1 = np.zeros((nd*nd*nd), float_type)
@@ -52,7 +131,7 @@ def stiffness_operator(x, coeffs, y, G, dofmap, dphi, nd):
     y1_ = np.zeros((nd*nd*nd), float_type)
     y2_ = np.zeros((nd*nd*nd), float_type)
 
-    for c in range(nc):
+    for cell in range(num_cell):
 
         T1[:] = 0.0
         T2[:] = 0.0
@@ -64,23 +143,23 @@ def stiffness_operator(x, coeffs, y, G, dofmap, dphi, nd):
         fw2[:] = 0.0
 
         # Pack coefficients
-        x_ = x[dofmap[c]]
+        x_ = x[dofmap[cell]]
 
         # Apply contraction in the x-direction
-        contract(dphi, x_, fw0, nd, nd, nd, nd, True)
+        contract(dphi, x_, fw0, nd, nd, nd, nd, True)  # [q1, i1] x [i1, i2, i3] -> [q1, i2, i3]
 
         # Apply contraction in the y-direction
-        transpose(x_, T1, nd, nd, nd, nd, nd*nd, 1)
-        contract(dphi, T1, T2, nd, nd, nd, nd, True)
-        transpose(T2, fw1, nd, nd, nd, nd, nd*nd, 1)
+        transpose(x_, T1, nd, nd, nd, nd, nd*nd, 1)  # [i1, i2, i3] -> [i2, i1, i3]
+        contract(dphi, T1, T2, nd, nd, nd, nd, True)  # [q2, i2] x [i2, i1, i3] -> [q2, i1, i3]
+        transpose(T2, fw1, nd, nd, nd, nd, nd*nd, 1)  # [q2, i1, i3] -> [i1, q2, i3]
 
         # Apply contraction in the z-direction
-        transpose(x_, T3, nd, nd, nd, 1, nd, nd*nd)
-        contract(dphi, T3, T4, nd, nd, nd, nd, True)
-        transpose(T4, fw2, nd, nd, nd, 1, nd, nd*nd)
+        transpose(x_, T3, nd, nd, nd, 1, nd, nd*nd)  # [i1, i2, i3] -> [i3, i2, i1]
+        contract(dphi, T3, T4, nd, nd, nd, nd, True)  # [q3, i3] x [i3, i2, i1] -> [q3, i2, i1]
+        transpose(T4, fw2, nd, nd, nd, 1, nd, nd*nd)  # [q3, i2, i1] -> [i1, i2, q3]
 
         # Apply transform
-        stiffness_transform(G[c], coeffs[c], fw0, fw1, fw2, nd)
+        stiffness_transform(G[cell], cell_constants[cell], fw0, fw1, fw2, nd)
 
         T1[:] = 0.0
         T2[:] = 0.0
@@ -92,27 +171,34 @@ def stiffness_operator(x, coeffs, y, G, dofmap, dphi, nd):
         y2_[:] = 0.0
 
         # Apply contraction in the x-direction
-        contract(dphi, fw0, y0_, nd, nd, nd, nd, False)
+        contract(dphi, fw0, y0_, nd, nd, nd, nd, False)  # [j1, q1] x [q1, j2, j3] -> [j1, j2, j3]
 
         # Apply contraction in the y-direction
-        transpose(fw1, T1, nd, nd, nd, nd, nd*nd, 1)
-        contract(dphi, T1, T2, nd, nd, nd, nd, False)
-        transpose(T2, y1_, nd, nd, nd, nd, nd*nd, 1)
+        transpose(fw1, T1, nd, nd, nd, nd, nd*nd, 1)  # [j1, q2, j3] -> [q2, j1, j3]
+        contract(dphi, T1, T2, nd, nd, nd, nd, False)  # [j2, q2] x [q2, j1, j3] -> [j2, j1, j3]
+        transpose(T2, y1_, nd, nd, nd, nd, nd*nd, 1)  # [j2, j1, j3] -> [j1, j2, j3]
 
         # Apply contraction in the z-direction
-        transpose(fw2, T3, nd, nd, nd, 1, nd, nd*nd)
-        contract(dphi, T3, T4, nd, nd, nd, nd, False)
-        transpose(T4, y2_, nd, nd, nd, 1, nd, nd*nd)
+        transpose(fw2, T3, nd, nd, nd, 1, nd, nd*nd)  # [j1, j2, q3] -> [q3, j2, j1]
+        contract(dphi, T3, T4, nd, nd, nd, nd, False)  # [j3, q3] x [q3, j2, j1] -> [j3, j2, j1]
+        transpose(T4, y2_, nd, nd, nd, 1, nd, nd*nd)  # [j3, j2, j1] -> [j1, j2, j3]
 
         # Add contributions
-        y[dofmap[c]] += y0_ + y1_ + y2_
+        y[dofmap[cell]] += y0_ + y1_ + y2_
 
 
 @numba.njit(fastmath=True)
 def axpy(alpha, x, y):
     """
-    axpy operation
+    AXPY: y = a*x + y
+
+    Parameters
+    ----------
+    alpha : scalar coefficient
+    x : input vector
+    y : input and output vector
     """
+
     for i in range(y.size):
         y[i] = alpha*x[i] + y[i]
 
@@ -120,7 +206,12 @@ def axpy(alpha, x, y):
 @numba.njit
 def copy(a, b):
     """
-    Copying array
+    Copy the entries of vector a to vector b
+
+    Parameters
+    ----------
+    a : input vector
+    b : output vector
     """
 
     for i in range(a.size):
@@ -130,8 +221,13 @@ def copy(a, b):
 @numba.njit(fastmath=True)
 def pointwise_divide(a, b, c):
     """
-    Pointwise divide operation
-    c[i] = a[i] / b[i]
+    Pointwise divide: c = a / b
+
+    Parameters
+    ----------
+    a : input vector
+    b : input vector
+    c : output vector
     """
 
     for i in range(c.size):
