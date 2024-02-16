@@ -1,3 +1,11 @@
+#
+# .. _test_mass_operator:
+#
+# Test whether the mass operator is working correctly by comparing the output
+# with DOLFINx.
+# ===========================================================================
+# Copyright (C) 2024 Adeeb Arif Kor
+
 from time import perf_counter_ns
 
 import numpy as np

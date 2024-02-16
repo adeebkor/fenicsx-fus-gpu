@@ -1,3 +1,11 @@
+#
+# .. _test_stiffness_operator:
+#
+# Test whether the stiffness operator is working correctly by comparing the
+# output with DOLFINx.
+# ===========================================================================
+# Copyright (C) 2024 Adeeb Arif Kor
+
 from time import perf_counter_ns
 
 import numpy as np
