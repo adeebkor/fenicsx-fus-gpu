@@ -139,6 +139,7 @@ v_n.x.array[:] = 0.0
 # RK slope functions #
 # ------------------ #
 
+
 def f0(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     """
     Evaluate du/dt = f0(t, u, v)
