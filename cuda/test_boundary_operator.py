@@ -20,6 +20,7 @@ from ufl import inner, ds, TestFunction
 import dolfinx.io as io
 
 from precompute import compute_boundary_facets_scaled_jacobian_determinant
+from operators import mass_operator
 from utils import facet_integration_domain
 
 import numba
@@ -161,39 +162,6 @@ for i, (cell, local_facet) in enumerate(boundary_data):
 
 coeffs = np.ones(facet_dofmap.shape[0], dtype=float_type)  # material coefficients
 
-
-@cuda.jit
-def boundary_facet_operator_kernel(
-    x: numba.types.Array,
-    facet_constants: numba.types.Array,
-    y: numba.types.Array,
-    detJ_f: numba.types.Array,
-    facet_dofmap: numba.types.Array,
-):
-    """
-    Compute the boundary facet operator.
-
-    Parameters
-    ----------
-    x : input array
-    facet_constants : array containing the material coefficients
-    y : output array
-    detJ_f : array containing the determinant of the Jacobian on the boundary facets
-    facet_dofmap : 2d array containing the local DOF on the facets
-    """
-    thread_id = cuda.threadIdx.x  # Local thread ID (max: 1024)
-    block_id = cuda.blockIdx.x  # Block ID (max: 2147483647)
-    idx = thread_id + block_id * cuda.blockDim.x  # Global thread ID
-
-    facet = idx // facet_dofmap.shape[1]
-    local_dof = idx % facet_dofmap.shape[1]
-
-    if idx < facet_dofmap.size:
-        dof = facet_dofmap[facet, local_dof]
-        value = x[dof] * detJ_f[facet, local_dof] * facet_constants[facet]
-        cuda.atomic.add(y, dof, value)
-
-
 # Set the number of threads in a block
 threadsperblock = 128
 numb_blocks = (facet_dofmap.size + (threadsperblock - 1)) // threadsperblock
@@ -206,7 +174,7 @@ detJ_f_device = cuda.to_device(detJ_f)
 facet_dofmap_device = cuda.to_device(facet_dofmap)
 
 # Call the kernel
-boundary_facet_operator_kernel[numb_blocks, threadsperblock](
+mass_operator[numb_blocks, threadsperblock](
     x_device, facet_constants_device, y_device, detJ_f_device, facet_dofmap_device
 )
 
