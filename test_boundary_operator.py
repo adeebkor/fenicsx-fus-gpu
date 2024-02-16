@@ -156,3 +156,20 @@ print("Euclidean difference: ",
 
 # Test the closeness between the vectors
 np.testing.assert_allclose(b, b_dolfinx.array, rtol=tol, atol=tol)
+
+# Timing boundary operator function
+timing_boundary_operator = np.empty(10)
+for i in range(timing_boundary_operator.size):
+    b[:] = 0.0
+    tic = perf_counter_ns()
+    boundary_facet_operator(u, coeffs, b, detJ_f, dofmap, boundary_data,
+                            local_facet_dof)
+    toc = perf_counter_ns()
+    timing_boundary_operator[i] = toc - tic
+
+timing_boundary_operator *= 1e-3
+
+print(
+    f"Elapsed time (boundary facet operator): "
+    f"{timing_boundary_operator.mean():.0f} ± "
+    f"{timing_boundary_operator.std():.0f} μs")
