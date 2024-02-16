@@ -3,7 +3,7 @@
 Sum factorisation
 =================
 
-This file contains the functions that is use in the sum-factorisation 
+This file contains the functions that is use in the sum-factorisation
 algorithm, namely the transpose and contract functions.
 
 Copyright (C) 2024 Adeeb Arif Kor
@@ -42,13 +42,13 @@ def transpose(A: npt.NDArray[np.floating], B: npt.NDArray[np.floating],
 
 
 @numba.njit(fastmath=True)
-def contract(A: npt.NDArray[np.floating], B: npt.NDArray[np.floating], 
-             C: npt.NDArray[np.floating], Nk: int, Na: int, Nb: int, 
+def contract(A: npt.NDArray[np.floating], B: npt.NDArray[np.floating],
+             C: npt.NDArray[np.floating], Nk: int, Na: int, Nb: int,
              Nc: int, bool: bool):
     """
-    Perform the tensor contraction between the input tensor A and B and store 
+    Perform the tensor contraction between the input tensor A and B and store
     it in the output tensor C.
-    
+
     Parameters
     ----------
     A : input tensor (Nk x Na)

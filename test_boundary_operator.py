@@ -13,9 +13,8 @@ from mpi4py import MPI
 
 import basix
 import basix.ufl
-from dolfinx.fem import assemble_vector, functionspace, form, locate_dofs_topological, Function
+from dolfinx.fem import assemble_vector, functionspace, form, Function
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType
-from dolfinx.io import XDMFFile
 from ufl import inner, ds, TestFunction
 
 from precompute import compute_boundary_facets_scaled_jacobian_determinant
@@ -95,19 +94,21 @@ facet_to_cell_map = mesh.topology.connectivity(
 boundary_facet_cell = {}
 
 for boundary_facet in boundary_facets:
-    boundary_facet_cell[boundary_facet] = facet_to_cell_map.links(boundary_facet)[0]
+    boundary_facet_cell[boundary_facet] = facet_to_cell_map.links(
+        boundary_facet)[0]
 
 # Create an array that contains all the boundary facet data
 boundary_data = np.zeros((boundary_facets.size, 2), dtype=np.int32)
 
 for i, (facet, cell) in enumerate(boundary_facet_cell.items()):
-    facets = cell_to_facet_map.links(cell) 
+    facets = cell_to_facet_map.links(cell)
     local_facet = np.where(facet == facets)
     boundary_data[i, 0] = cell
     boundary_data[i, 1] = local_facet[0][0]
 
 # Get the local DOF on the facets
-local_facet_dof = np.array(basix_element.entity_closure_dofs[2], dtype=np.int32)
+local_facet_dof = np.array(basix_element.entity_closure_dofs[2],
+                           dtype=np.int32)
 
 # Compute the determinant of the Jacobian on the boundary facets
 num_boundary_cells = np.unique(boundary_data[:, 1]).size
@@ -139,7 +140,7 @@ for f in range(6):
     dphi_f[f, :, :, :] = gtable_f[1:, :, :, 0]
 
 # Compute the determinant of the Jacobian on the boundary facets
-detJ_f = np.zeros((boundary_data.shape[0], nq_f), 
+detJ_f = np.zeros((boundary_data.shape[0], nq_f),
                   dtype=float_type)
 
 compute_boundary_facets_scaled_jacobian_determinant(
@@ -159,7 +160,7 @@ a_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 b_dolfinx = assemble_vector(a_dolfinx)
 
 # Check the difference between the vectors
-print("Euclidean difference: ", 
+print("Euclidean difference: ",
       np.linalg.norm(b - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
 
 # Test the closeness between the vectors

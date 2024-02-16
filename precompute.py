@@ -15,13 +15,15 @@ import numba
 
 float_type = np.float64
 
+
 @numba.njit(fastmath=True)
 def compute_boundary_facets_scaled_jacobian_determinant(
-        detJ_f: npt.NDArray[np.floating], 
-        mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]], 
-        boundary_data: npt.NDArray[np.int32], 
-        dphi_f: npt.NDArray[np.floating], 
+        detJ_f: npt.NDArray[np.floating],
+        mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
+        boundary_data: npt.NDArray[np.int32],
+        dphi_f: npt.NDArray[np.floating],
         weights: npt.NDArray[np.floating]):
+
     """"
     Compute the boundary facets Jacobian determinant and scaled it with the
     quadrature weights.
@@ -32,11 +34,11 @@ def compute_boundary_facets_scaled_jacobian_determinant(
     ----------
     detJ_f : array for the output
     mesh : mesh topology and geometry
-    boundary_data : array containing the cells and local facets indices on the 
+    boundary_data : array containing the cells and local facets indices on the
         boundary.
     dphi_f : derivatives of the basis functions on the cell facets.
     weights : quadrature weights
-    
+
     Note: Currently, this function only works for 3D mesh
     """
 
@@ -45,7 +47,7 @@ def compute_boundary_facets_scaled_jacobian_determinant(
     nq = weights.size  # Number of quadrature points
 
     # Map of the hexahedron reference facet Jacobian
-    hexahedron_reference_facet_jacobian = np.array(
+    hex_reference_facet_jacobian = np.array(
         [[[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]],
          [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
          [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
@@ -61,7 +63,7 @@ def compute_boundary_facets_scaled_jacobian_determinant(
 
             J_cell = dphi[:, q, :] @ coord_dofs[:, :]
 
-            J_facet = J_cell.T @ hexahedron_reference_facet_jacobian[local_facet]
+            J_facet = J_cell.T @ hex_reference_facet_jacobian[local_facet]
 
             detJ = np.linalg.norm(np.cross(J_facet[:, 0], J_facet[:, 1]))
 
@@ -70,11 +72,12 @@ def compute_boundary_facets_scaled_jacobian_determinant(
 
 @numba.njit(fastmath=True)
 def compute_scaled_jacobian_determinant(
-    detJ: npt.NDArray[np.floating], 
-    mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]], 
-    num_cell: int, 
-    dphi: npt.NDArray[np.floating], 
-    weights: npt.NDArray[np.floating]):
+        detJ: npt.NDArray[np.floating],
+        mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
+        num_cell: int,
+        dphi: npt.NDArray[np.floating],
+        weights: npt.NDArray[np.floating]):
+
     """
     Compute the determinant of the Jacobian and scaled it with the
     quadrature weights.
@@ -88,7 +91,7 @@ def compute_scaled_jacobian_determinant(
     num_cell : number of cells in the mesh
     dphi : derivatives of the basis functions
     weights : quadrature weights
-    
+
     Note: Currently, this function only works for 3D mesh
     """
 
@@ -108,14 +111,15 @@ def compute_scaled_jacobian_determinant(
 
 @numba.njit(fastmath=True)
 def compute_scaled_geometrical_factor(
-    G: npt.NDArray[np.floating], 
-    mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]], 
-    num_cell: int,
-    dphi: npt.NDArray[np.floating], 
-    weights: npt.NDArray[np.floating]):
+        G: npt.NDArray[np.floating],
+        mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
+        num_cell: int,
+        dphi: npt.NDArray[np.floating],
+        weights: npt.NDArray[np.floating]):
+
     """
     Compute the scaled geometrical factor given by
-    
+
     G = w_{q} J_{q}^{-T}J_{q}^{-1} |J_{q}|
 
     Parameters
@@ -125,7 +129,7 @@ def compute_scaled_geometrical_factor(
     num_cell : number of cells in the mesh
     dphi : derivatives of the basis functions
     weights : quadrature weights
-    
+
     Note: Currently, this function only works for 3D mesh
     """
 

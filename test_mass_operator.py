@@ -15,7 +15,6 @@ import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
 from dolfinx.mesh import create_box, CellType
-from dolfinx.io import XDMFFile
 from ufl import inner, dx, TestFunction
 
 from precompute import compute_scaled_jacobian_determinant
@@ -105,7 +104,7 @@ a_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
 b_dolfinx = assemble_vector(a_dolfinx)
 
 # Check the difference between the vectors
-print("Euclidean difference: ", 
+print("Euclidean difference: ",
       np.linalg.norm(b - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array))
 
 # Test the closeness between the vectors
