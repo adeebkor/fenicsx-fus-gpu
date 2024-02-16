@@ -10,6 +10,7 @@ Copyright (C) 2024 Adeeb Arif Kor
 """
 
 import numpy as np
+import numpy.typing as npt
 import numba
 
 from sum_factorisation import contract, transpose
@@ -18,8 +19,14 @@ float_type = np.float64
 
 
 @numba.njit(fastmath=True)
-def boundary_facet_operator(x, cell_constants, y, detJ_f, dofmap, boundary_data, 
-                            local_facet_dof):
+def boundary_facet_operator(
+    x: npt.NDArray[np.floating], 
+    cell_constants: npt.NDArray[np.floating], 
+    y: npt.NDArray[np.floating], 
+    detJ_f: npt.NDArray[np.floating], 
+    dofmap: npt.NDArray[np.int32], 
+    boundary_data: npt.NDArray[np.int32], 
+    local_facet_dof: npt.NDArray[np.int32]):
     """
     Perform the vector assembly of the boundary facets operator.
 
@@ -47,7 +54,12 @@ def boundary_facet_operator(x, cell_constants, y, detJ_f, dofmap, boundary_data,
 
 
 @numba.njit(fastmath=True)
-def mass_operator(x, cell_constants, y, detJ, dofmap):
+def mass_operator(
+    x: npt.NDArray[np.floating],
+    cell_constants: npt.NDArray[np.floating], 
+    y: npt.NDArray[np.floating], 
+    detJ: npt.NDArray[np.floating], 
+    dofmap: npt.NDArray[np.int32]):
     """
     Perform the vector assembly of the mass operator.
 
@@ -74,7 +86,13 @@ def mass_operator(x, cell_constants, y, detJ, dofmap):
 
 
 @numba.njit(fastmath=True)
-def stiffness_transform(Gc, cell_constant, fw0, fw1, fw2, nq):
+def stiffness_transform(
+    Gc: npt.NDArray[np.floating], 
+    cell_constant: np.floating, 
+    fw0: npt.NDArray[np.floating],
+    fw1: npt.NDArray[np.floating],
+    fw2: npt.NDArray[np.floating], 
+    nq: int):
     """
     Geometric transformation
 
@@ -100,7 +118,14 @@ def stiffness_transform(Gc, cell_constant, fw0, fw1, fw2, nq):
 
 
 @numba.njit(fastmath=True)
-def stiffness_operator(x, cell_constants, y, G, dofmap, dphi, nd):
+def stiffness_operator(
+    x: npt.NDArray[np.floating], 
+    cell_constants: npt.NDArray[np.floating], 
+    y: npt.NDArray[np.floating], 
+    G: npt.NDArray[np.floating], 
+    dofmap: npt.NDArray[np.int32], 
+    dphi: npt.NDArray[np.floating], 
+    nd: int):
     """"
     Perform the vector assembly of the stiffness operator.
 
@@ -188,7 +213,10 @@ def stiffness_operator(x, cell_constants, y, G, dofmap, dphi, nd):
 
 
 @numba.njit(fastmath=True)
-def axpy(alpha, x, y):
+def axpy(
+    alpha: np.floating, 
+    x: npt.NDArray[np.floating], 
+    y: npt.NDArray[np.floating]):
     """
     AXPY: y = a*x + y
 
@@ -204,7 +232,7 @@ def axpy(alpha, x, y):
 
 
 @numba.njit
-def copy(a, b):
+def copy(a: npt.NDArray[np.floating], b: npt.NDArray[np.floating]):
     """
     Copy the entries of vector a to vector b
 
@@ -219,7 +247,8 @@ def copy(a, b):
 
 
 @numba.njit(fastmath=True)
-def pointwise_divide(a, b, c):
+def pointwise_divide(a: npt.NDArray[np.floating], b: npt.NDArray[np.floating], 
+                     c: npt.NDArray[np.floating]):
     """
     Pointwise divide: c = a / b
 

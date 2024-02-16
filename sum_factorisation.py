@@ -10,13 +10,15 @@ Copyright (C) 2024 Adeeb Arif Kor
 """
 
 import numpy as np
+import numpy.typing as npt
 import numba
 
 float_type = np.float64
 
 
 @numba.njit(fastmath=True)
-def transpose(A, B, Na, Nb, Nc, offa, offb, offc):
+def transpose(A: npt.NDArray[np.floating], B: npt.NDArray[np.floating],
+              Na: int, Nb: int, Nc: int, offa: int, offb: int, offc: int):
     """
     Perform the tranposition of the input tensor A (Na x Nb x Nc) and store it
     into the output tensor B.
@@ -40,7 +42,9 @@ def transpose(A, B, Na, Nb, Nc, offa, offb, offc):
 
 
 @numba.njit(fastmath=True)
-def contract(A, B, C, Nk, Na, Nb, Nc, bool):
+def contract(A: npt.NDArray[np.floating], B: npt.NDArray[np.floating], 
+             C: npt.NDArray[np.floating], Nk: int, Na: int, Nb: int, 
+             Nc: int, bool: bool):
     """
     Perform the tensor contraction between the input tensor A and B and store 
     it in the output tensor C.
