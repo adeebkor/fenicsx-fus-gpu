@@ -13,8 +13,6 @@ import numpy as np
 import numpy.typing as npt
 import numba
 
-float_type = np.float64
-
 
 @numba.njit(fastmath=True)
 def compute_boundary_facets_scaled_jacobian_determinant(
@@ -22,7 +20,8 @@ def compute_boundary_facets_scaled_jacobian_determinant(
         mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
         boundary_data: npt.NDArray[np.int32],
         dphi_f: npt.NDArray[np.floating],
-        weights: npt.NDArray[np.floating]):
+        weights: npt.NDArray[np.floating],
+        float_type: np.dtype[np.floating]):
 
     """"
     Compute the boundary facets Jacobian determinant and scaled it with the
@@ -53,7 +52,7 @@ def compute_boundary_facets_scaled_jacobian_determinant(
          [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
          [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
          [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
-         [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]])
+         [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]], dtype=float_type)
 
     for i, (cell, local_facet) in enumerate(boundary_data):
         coord_dofs = x_g[x_dofs[cell]]

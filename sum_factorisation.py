@@ -13,8 +13,6 @@ import numpy as np
 import numpy.typing as npt
 import numba
 
-float_type = np.float64
-
 
 @numba.njit(fastmath=True)
 def transpose(A: npt.NDArray[np.floating], B: npt.NDArray[np.floating],

@@ -15,9 +15,6 @@ import numba
 
 from sum_factorisation import contract, transpose
 
-float_type = np.float64
-
-
 @numba.njit(fastmath=True)
 def mass_operator(
         x: npt.NDArray[np.floating],
@@ -92,7 +89,8 @@ def stiffness_operator(
         G: npt.NDArray[np.floating],
         dofmap: npt.NDArray[np.int32],
         dphi: npt.NDArray[np.floating],
-        nd: int):
+        nd: int,
+        float_type: np.dtype[np.floating]):
 
     """"
     Perform the vector assembly of the stiffness operator.

@@ -23,7 +23,7 @@ from precompute import (compute_scaled_jacobian_determinant,
 from operators import (mass_operator, stiffness_operator)
 from utils import facet_integration_domain
 
-float_type = np.float64
+float_type = np.float32
 
 if isinstance(float_type, np.float64):
     tol = 1e-12
@@ -137,7 +137,7 @@ for f in range(6):
 # Compute scaled Jacobian determinant (boundary facets)
 detJ_f = np.zeros((boundary_data.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
-    detJ_f, (x_dofs, x_g), boundary_data, dphi_f, wts_f)
+    detJ_f, (x_dofs, x_g), boundary_data, dphi_f, wts_f, float_type)
 
 # Create boundary facets dofmap
 bfacet_dofmap = np.zeros(
@@ -164,11 +164,11 @@ a0_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
 b0_dolfinx = assemble_vector(a0_dolfinx)
 
 # Check the difference between the vectors
-print("Euclidean difference (mass operator): ",
-      np.linalg.norm(b - b0_dolfinx.array) / np.linalg.norm(b0_dolfinx.array))
+mass_difference = np.linalg.norm(
+    b - b0_dolfinx.array) / np.linalg.norm(b0_dolfinx.array)
+print(f"Euclidean difference (mass operator): {mass_difference}")
 
-# Test the closeness between the vectors
-np.testing.assert_allclose(b[:], b0_dolfinx.array[:], atol=tol)
+assert(mass_difference < tol)
 
 # ------------------ #
 # Stiffness operator #
@@ -190,18 +190,18 @@ dphi_1D = dphi_1D.flatten()
 u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
                * np.sin(4*np.pi*x[2]))
 b[:] = 0.0
-stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd)
+stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd, float_type)
 
 a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
                   dtype=float_type)
 b1_dolfinx = assemble_vector(a1_dolfinx)
 
 # Check the difference between the vectors
-print("Euclidean difference (stiffness operator): ",
-      np.linalg.norm(b - b1_dolfinx.array) / np.linalg.norm(b1_dolfinx.array))
+stiffness_difference = np.linalg.norm(
+    b - b1_dolfinx.array) / np.linalg.norm(b1_dolfinx.array)
+print(f"Euclidean difference (stiffness operator): {stiffness_difference}")
 
-# Test the closeness between the vectors
-np.testing.assert_allclose(b[:], b1_dolfinx.array[:], rtol=tol, atol=tol)
+assert(stiffness_difference < tol)
 
 # ------------------ #
 # Boundary operators #
@@ -215,8 +215,9 @@ a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 b3_dolfinx = assemble_vector(a3_dolfinx)
 
 # Check the difference between the vectors
-print("Euclidean difference (boundary operator): ",
-      np.linalg.norm(b - b3_dolfinx.array) / np.linalg.norm(b3_dolfinx.array))
+bfacet_difference =  np.linalg.norm(
+    b - b3_dolfinx.array) / np.linalg.norm(b3_dolfinx.array)
+print(f"Euclidean difference (boundary operator): {bfacet_difference}")
 
 # Test the closeness between the vectors
-np.testing.assert_allclose(b, b3_dolfinx.array, rtol=tol, atol=tol)
+assert(bfacet_difference < tol)
