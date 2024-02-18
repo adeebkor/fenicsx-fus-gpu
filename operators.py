@@ -19,48 +19,12 @@ float_type = np.float64
 
 
 @numba.njit(fastmath=True)
-def boundary_facet_operator(
-        x: npt.NDArray[np.floating],
-        cell_constants: npt.NDArray[np.floating],
-        y: npt.NDArray[np.floating],
-        detJ_f: npt.NDArray[np.floating],
-        dofmap: npt.NDArray[np.int32],
-        boundary_data: npt.NDArray[np.int32],
-        local_facet_dof: npt.NDArray[np.int32]):
-
-    """
-    Perform the vector assembly of the boundary facets operator.
-
-    Parameters
-    ----------
-    x : input vector
-    cell_constant : constant values that are defined for each cell.
-    y : output vector
-    detJ_f : scaled Jacobian determinant on the cell facets.
-    dofmap : degrees-of-freedom map
-    boundary_data : array containing the cells and local facets indices on the
-        boundary.
-    local_facet_dof : the local degrees-of-freedom on the facet.
-    """
-
-    for i, (cell, local_facet) in enumerate(boundary_data):
-        # Pack coefficients
-        x_ = x[dofmap[cell][local_facet_dof[local_facet]]]
-
-        # Apply transform
-        x_ *= detJ_f[i, :] * cell_constants[cell]
-
-        # Add contributions
-        y[dofmap[cell][local_facet_dof[local_facet]]] += x_
-
-
-@numba.njit(fastmath=True)
 def mass_operator(
         x: npt.NDArray[np.floating],
-        cell_constants: npt.NDArray[np.floating],
+        entity_constants: npt.NDArray[np.floating],
         y: npt.NDArray[np.floating],
-        detJ: npt.NDArray[np.floating],
-        dofmap: npt.NDArray[np.int32]):
+        entity_detJ: npt.NDArray[np.floating],
+        entity_dofmap: npt.NDArray[np.int32]):
 
     """
     Perform the vector assembly of the mass operator.
@@ -68,23 +32,23 @@ def mass_operator(
     Parameters
     ----------
     x : input vector
-    cell_constant : constant values that are defined for each cell.
+    entity_constant : constant values that are defined for each entity.
     y : output vector
-    detJ : scaled Jacobian determinant
-    dofmap : degrees-of-freedom map
+    entity_detJ : scaled Jacobian determinant
+    entity_dofmap : degrees-of-freedom map
     """
 
-    num_cell = cell_constants.size
+    num_entities = entity_constants.size
 
-    for cell in range(num_cell):
+    for entity in range(num_entities):
         # Pack coefficients
-        x_ = x[dofmap[cell]]
+        x_ = x[entity_dofmap[entity]]
 
         # Apply transform
-        x_ *= detJ[cell] * cell_constants[cell]
+        x_ *= entity_detJ[entity] * entity_constants[entity]
 
         # Add contributions
-        y[dofmap[cell]] += x_
+        y[entity_dofmap[entity]] += x_
 
 
 @numba.njit(fastmath=True)
