@@ -1,5 +1,5 @@
 #
-# Linear wave with attenuation
+# Linear wave
 # - Heterogenous media
 # - Mass lumped scheme
 # =================================
@@ -11,124 +11,99 @@ import numpy as np
 import basix
 import basix.ufl
 
-from dolfinx import fem, la, io, mesh
-import ufl
-
-# ------------- #
-# Problem setup #
-# ------------- #
+from dolfinx import cpp, la
+from dolfinx.fem import assemble_vector, form, functionspace, Function
+from dolfinx.io import XDMFFile, VTXWriter
+from ufl import dx, grad, inner, Measure, TestFunction
 
 # Source parameters
-freq0 = 10  # source frequency (Hz)
-w0 = 2.0 * np.pi * freq0  # angular frequency (rad/s)
-u0 = 1  # source speed (m/s)
+source_frequency = 0.5e6  # Hz
+source_amplitude = 60000.0  # Pa
+period = 1.0 / source_frequency  # s
+angular_frequency = 2.0 * np.pi * source_frequency  # rad/s
 
 # Material parameters
-c0 = 1.5  # speed of sound (m/s)
-rho0 = 1.0  # density (kg/m^3)
-alphadB = 5  # attenuation of sound (dB/m)
-delta0 = 2.0 * alphadB / 20 * np.log(10) * c0**3 / w0**2
+speed_of_sound = 1500.0  # m/s
+density = 1000.0  # kg/m^3
 
 # Domain parameter
-L_d = 1.0  # domain length (m)
+domain_length = 0.12  # m
 
-# Physical parameters
-p0 = rho0*c0*u0  # pressure amplitude (Pa)
-lmbda = c0/freq0  # wavelength (m)
+# FE parameters
+degree_of_basis = 4
 
-# Mesh parameters
-epw = 2  # elements per wavelength
-nw = L_d / lmbda  # number of waves
-nx = int(epw * nw + 1)  # number of elements
-h = L_d / nx
-
-# Basis degree
-p = 4
-
-# Generate mesh
-msh = mesh.create_rectangle(
-    MPI.COMM_WORLD,
-    ((0.0, 0.0), (L_d, L_d)),
-    (nx, nx),
-    mesh.CellType.quadrilateral)
-
-# Tag boundaries
-tdim = msh.topology.dim
-
-facets0 = mesh.locate_entities_boundary(
-    msh, tdim-1, lambda x: x[0] < np.finfo(float).eps)
-facets1 = mesh.locate_entities_boundary(
-    msh, tdim-1, lambda x: x[0] > L_d - np.finfo(float).eps)
-
-f_indices, f_pos = np.unique(np.hstack((facets0, facets1)), return_index=True)
-f_values = np.hstack((np.full(facets0.shape, 1, np.intc),
-                      np.full(facets1.shape, 2, np.intc)))
-ft = mesh.meshtags(msh, tdim-1, f_indices, f_values[f_pos])
-
-# Tag cells
-cells0 = mesh.locate_entities(msh, tdim, lambda x: x[0] <= L_d/2.0)
-cells1 = mesh.locate_entities(msh, tdim, lambda x: x[0] >= L_d/2.0)
-
-# Define DG function for physical parameters
-V_DG = fem.functionspace(msh, ("DG", 0))
-c = fem.Function(V_DG)
-c.x.array[:] = c0
-c.x.array[cells1] = 2.8
-
-rho = fem.Function(V_DG)
-rho.x.array[:] = rho0
-rho.x.array[cells1] = 1.85
-
-delta = fem.Function(V_DG)
-delta.x.array[:] = 0
-
-# Temporal parameters
-tstart = 0.0
-tfinal = L_d / c0 + 8 / freq0
-
-CFL = 0.5
-dt = CFL * h / (c0 * p**2)
+# Read mesh and mesh tags
+with XDMFFile (MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
+    mesh_name = "planar_3d_0"
+    mesh = fmesh.read_mesh(name=f"{mesh_name}")
+    tdim = mesh.topology.dim
+    mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
+    mesh.topology.create_connectivity(tdim-1, tdim)
+    mt_facet = fmesh.read_meshtags(mesh, name=f"{mesh_name}_facets")
 
 # Boundary facets
-ds = ufl.Measure('ds', subdomain_data=ft, domain=msh)
+ds = Measure('ds', subdomain_data=mt_facet, domain=mesh)
+
+# Mesh parameters
+num_cell = mesh.topology.index_map(tdim).size_local
+hmin = np.array([cpp.mesh.h(
+    mesh._cpp_object, tdim, np.arange(num_cell, dtype=np.int32)).min()])
+mesh_size = np.zeros(1)
+MPI.COMM_WORLD.Reduce(hmin, mesh_size, op=MPI.MIN, root=0)
+MPI.COMM_WORLD.Bcast(mesh_size, root=0)
+
+# Define a DG function space for the material parameters
+V_DG = functionspace(mesh, ("DG", 0))
+c0 = Function(V_DG)
+c0.x.array[:] = speed_of_sound
+
+rho0 = Function(V_DG)
+rho0.x.array[:] = density
+
+# Temporal parameters
+CFL = 0.65
+time_step_size = CFL * mesh_size / (speed_of_sound * degree_of_basis**2)
+step_per_period = int(period / time_step_size) + 1
+time_step_size = period / step_per_period
+start_time = 0.0
+final_time = domain_length / speed_of_sound + 8.0 / source_frequency
+number_of_step = (final_time - start_time) / time_step_size + 1
 
 # Define finite element and function space
-cell_type = basix.cell.string_to_type(msh.ufl_cell().cellname())
-element = basix.ufl.element(
-    basix.ElementFamily.P, cell_type, p,
-    basix.LagrangeVariant.gll_warped)
-V = fem.functionspace(msh, element)
+family = basix.ElementFamily.P
+variant = basix.LagrangeVariant.gll_warped
+cell_type = mesh.basix_cell()
+
+element = basix.ufl.element(family, cell_type, degree_of_basis, variant)
+V = functionspace(mesh, element)
 
 # Define functions
-v = ufl.TestFunction(V)
-u = fem.Function(V)
-g = fem.Function(V)
-dg = fem.Function(V)
-u_n = fem.Function(V)
-v_n = fem.Function(V)
+v = TestFunction(V)
+u = Function(V)
+g = Function(V)
+u_n = Function(V)
+v_n = Function(V)
 
 # Quadrature parameters
 qd = {"2": 3, "3": 4, "4": 6, "5": 8, "6": 10, "7": 12, "8": 14,
       "9": 16, "10": 18}
 md = {"quadrature_rule": "GLL",
-      "quadrature_degree": qd[str(p)]}
+      "quadrature_degree": qd[str(degree_of_basis)]}
 
 # Define forms
 u.x.array[:] = 1.0
-a = fem.form(
-    ufl.inner(u/rho/c0/c0, v) * ufl.dx(metadata=md)
-    + ufl.inner(delta/rho/c0/c0/c0*u, v) * ds(2, metadata=md))
-m = fem.assemble_vector(a)
+a = form(
+    inner(u/rho0/c0/c0, v) * dx(metadata=md)
+)
+m = assemble_vector(a)
 m.scatter_reverse(la.InsertMode.add)
 
-L = fem.form(
-    - ufl.inner(1.0/rho*ufl.grad(u_n), ufl.grad(v)) * ufl.dx(metadata=md)
-    + ufl.inner(1.0/rho*g, v) * ds(1, metadata=md)
-    - ufl.inner(1.0/rho/c0*v_n, v) * ds(2, metadata=md)
-    - ufl.inner(delta/rho/c0/c0*ufl.grad(v_n), ufl.grad(v))
-    * ufl.dx(metadata=md)
-    + ufl.inner(delta/rho/c0/c0*dg, v) * ds(1, metadata=md))
-b = fem.assemble_vector(L)
+L = form(
+    - inner(1.0/rho0*grad(u_n), grad(v)) * dx(metadata=md)
+    + inner(1.0/rho0*g, v) * ds(1, metadata=md)
+    - inner(1.0/rho0/c0*v_n, v) * ds(2, metadata=md)
+)
+b = assemble_vector(L)
 b.scatter_reverse(la.InsertMode.add)
 
 # Set initial values for u_n and v_n
@@ -172,21 +147,17 @@ def f1(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     ------
     result : Result, i.e. k^{v}
     """
-    T = 1 / freq0
+    T = 1 / source_frequency
     alpha = 4
 
     if t < T * alpha:
-        window = 0.5 * (1 - np.cos(freq0 * np.pi * t / alpha))
-        dwindow = 0.5 * np.pi * freq0 / alpha * np.sin(
-            freq0 * np.pi * t / alpha)
+        window = 0.5 * (1 - np.cos(source_frequency * np.pi * t / alpha))
     else:
         window = 1.0
-        dwindow = 0.0
 
     # Update boundary condition
-    g.x.array[:] = window * p0 * w0 / c0 * np.cos(w0 * t)
-    dg.x.array[:] = dwindow * p0 * w0 / c0 * np.cos(w0 * t) \
-        - window * p0 * w0**2 / c0 * np.sin(w0 * t)
+    g.x.array[:] = window * source_amplitude * angular_frequency / \
+        speed_of_sound * np.cos(angular_frequency * t)
 
     # Update fields
     u_n.x.array[:] = u.array[:]
@@ -196,7 +167,7 @@ def f1(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
 
     # Assemble RHS
     b.array[:] = 0
-    fem.assemble_vector(b.array, L)
+    assemble_vector(b.array, L)
     b.scatter_reverse(la.InsertMode.add)
 
     # Solve
@@ -230,12 +201,15 @@ ku = la.vector(V.dofmap.index_map)
 kv = la.vector(V.dofmap.index_map)
 
 # Temporal data
-t = tstart
+ts = start_time
+tf = final_time
+dt = time_step_size
 step = 0
-nstep = int((tfinal - tstart) / dt) + 1
+nstep = int((tf - ts) / dt) + 1
 
-while t < tfinal:
-    dt = min(dt, tfinal-t)
+t = start_time
+while t < tf:
+    dt = min(dt, tf-t)
 
     # Store solution at start of time step
     u0.array[:] = u_.array[:]
@@ -274,5 +248,5 @@ while t < tfinal:
 # --------------------- #
 # Output final solution #
 # --------------------- #
-with io.VTXWriter(msh.comm, "output_final.bp", u_n, "bp4") as f:
+with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n, "bp4") as f:
     f.write(0.0)
