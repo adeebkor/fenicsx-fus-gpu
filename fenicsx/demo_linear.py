@@ -5,6 +5,8 @@
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
+import time
+
 from mpi4py import MPI
 import numpy as np
 
@@ -13,7 +15,7 @@ import basix.ufl
 
 from dolfinx import cpp, la
 from dolfinx.fem import assemble_vector, form, functionspace, Function
-from dolfinx.io import XDMFFile, VTXWriter
+from dolfinx.io import XDMFFile
 from ufl import dx, grad, inner, Measure, TestFunction
 
 # Source parameters
@@ -33,7 +35,7 @@ domain_length = 0.12  # m
 degree_of_basis = 4
 
 # Read mesh and mesh tags
-with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
+with XDMFFile(MPI.COMM_WORLD, "../mesh.xdmf", "r") as fmesh:
     mesh_name = "planar_3d_0"
     mesh = fmesh.read_mesh(name=f"{mesh_name}")
     tdim = mesh.topology.dim
@@ -66,7 +68,7 @@ time_step_size = CFL * mesh_size / (speed_of_sound * degree_of_basis**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-final_time = domain_length / speed_of_sound + 8.0 / source_frequency
+final_time = 20 * time_step_size  # domain_length / speed_of_sound + 8.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
 # Define finite element and function space
@@ -208,6 +210,7 @@ step = 0
 nstep = int((tf - ts) / dt) + 1
 
 t = start_time
+tic = time.time()
 while t < tf:
     dt = min(dt, tf-t)
 
@@ -237,16 +240,25 @@ while t < tf:
     t += dt
     step += 1
 
-    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
+    if step % 1 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}", flush=True)
 
     u_.scatter_forward()
     v_.scatter_forward()
     u_n.x.array[:] = u_.array[:]
     v_n.x.array[:] = v_.array[:]
+toc = time.time()
+elapsed = toc - tic
+
+print(f"Solve time: {elapsed}")
+print(f"Solve time per step: {elapsed/nstep}")
+
 
 # --------------------- #
 # Output final solution #
 # --------------------- #
-with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n, "bp4") as f:
-    f.write(0.0)
+
+print(u_n.x.array[:])
+
+# with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n, "bp4") as f:
+    # f.write(0.0)
