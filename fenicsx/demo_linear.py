@@ -33,7 +33,7 @@ domain_length = 0.12  # m
 degree_of_basis = 4
 
 # Read mesh and mesh tags
-with XDMFFile (MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
+with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
     mesh_name = "planar_3d_0"
     mesh = fmesh.read_mesh(name=f"{mesh_name}")
     tdim = mesh.topology.dim
