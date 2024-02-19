@@ -4,20 +4,25 @@
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
+import time
+
 import numpy as np
+import numpy.typing as npt
+import numba
 from mpi4py import MPI
 
 import basix
 import basix.ufl
 from dolfinx import cpp
 from dolfinx.fem import functionspace, Function
-from dolfinx.io import XDMFFile, VTXWriter
+from dolfinx.io import XDMFFile
 from dolfinx.mesh import locate_entities_boundary, create_box, CellType
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
                         compute_boundary_facets_scaled_jacobian_determinant)
-from operators import (mass_operator, stiffness_operator)
+from operators import (mass_operator, stiffness_operator, axpy, copy, 
+                       pointwise_divide)
 from utils import facet_integration_domain
 
 float_type = np.float64
@@ -91,7 +96,7 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-final_time = domain_length / speed_of_sound + 8.0 / source_frequency
+final_time = 20 * time_step_size # domain_length / speed_of_sound + 8.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
 # Mesh geometry data
@@ -113,15 +118,16 @@ dofmap = V.dofmap.list
 
 # Define functions
 u0 = Function(V, dtype=float_type)
-g = Function(V, dtype=float_type)
-un = Function(V, dtype=float_type)
-vn = Function(V, dtype=float_type)
 
 # Get the numpy array
-u0_ = u0.x.array
-g_ = g.x.array
-un_ = un.x.array
-vn_ = vn.x.array
+u = u0.x.array
+g = u.copy()
+u_n = u.copy()
+v_n = u.copy()
+
+# Create array for LHS and RHS vector
+m = u.copy()
+b = u.copy()
 
 # Compute geometric data of cell entities
 pts, wts = basix.quadrature.make_quadrature(
@@ -135,12 +141,14 @@ gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 # Compute scaled Jacobian determinant (cell)
+print("Computing scaled Jacobian determinant (cell)")
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
-# # Compute scaled geometrical factor (J^{-T}J_{-1}) 
-# G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
-# compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
+# Compute scaled geometrical factor (J^{-T}J_{-1}) 
+print("Computing scaled geometrical factor")
+G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
+compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
 # Compute geometric data of boundary facet entities
 boundary_facets1 = mt_facet.indices[mt_facet.values == 1]
@@ -179,11 +187,13 @@ for f in range(6):
     dphi_f[f, :, :, :] = gtable_f[1:, :, :, 0]
 
 # Compute scaled Jacobian determinant (source facets)
+print("Computing scaled Jacobian determinant (source facets)")
 detJ_f1 = np.zeros((boundary_data1.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f, float_type)
 
 # Compute scaled Jacobian determinant (absorbing facets)
+print("Computing scaled Jacobian determinant (absorbing facets)")
 detJ_f2 = np.zeros((boundary_data2.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f, float_type)
@@ -202,12 +212,171 @@ bfacet_dofmap2 = np.zeros(
 for i, (cell, local_facet) in enumerate(boundary_data2):
     bfacet_dofmap2[i, :] = dofmap[cell][local_facet_dof[local_facet]]
 
+# Define material coefficients
+cell_coeff1 = 1.0 / rho0_ / c0_ / c0_
+cell_coeff2 = - 1.0 / rho0_
+
+facet_coeff1 = np.zeros((bfacet_dofmap1.shape[0]), dtype=float_type)
+for i, (cell, local_facet) in enumerate(boundary_data1):
+    facet_coeff1[i] = 1.0 / rho0_[cell]
+
+facet_coeff2 = np.zeros((bfacet_dofmap2.shape[0]), dtype=float_type)
+for i, (cell, local_facet) in enumerate(boundary_data2):
+    facet_coeff2[i] = - 1.0 / rho0_[cell] / c0_[cell]
+
+# Create 1D element for sum factorisation
+element_1D = basix.create_element(
+    family, basix.CellType.interval, basis_degree,
+    variant, dtype=float_type)
+pts_1D, wts_1D = basix.quadrature.make_quadrature(
+    basix.CellType.interval, 
+    quadrature_degree[basis_degree], 
+    basix.QuadratureType.gll)
+pts_1D, wts_1D = pts_1D.astype(float_type), wts_1D.astype(float_type)
+
+table_1D = element_1D.tabulate(1, pts_1D)
+dphi_1D = table_1D[1, :, :, 0]
+nd = dphi_1D.shape[1]
+dphi_1D = dphi_1D.flatten()
+
 # ------------ #
 # Assemble LHS #
 # ------------ #
 
-coeff0 = 1.0 / rho0_ / c0_ / c0_  # material coefficient
+u[:] = 1.0
 
-m = u0_.copy()
+m[:] = 0.0
+mass_operator(u, cell_coeff1, m, detJ, dofmap)
 
-# mass_operator(m, )
+# Set initial values for un and vn
+u_n[:] = 0.0
+v_n[:] = 0.0
+
+# ------------------ #
+# RK slope functions #
+# ------------------ #
+
+def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
+      result: npt.NDArray[np.floating]):
+    
+    """
+    Evaluate dv/dt = f1(t, u, v)
+
+    Parameters
+    ----------
+    t : Current time, i.e. tn
+    u : Current u, i.e. un
+    v : Current v, i.e. vn
+
+    Return
+    ------
+    result : Result, i.e. k^{v}
+    """
+
+    T = 1 / source_frequency
+    alpha = 4
+
+    if t < T * alpha:
+        window = 0.5 * (1 - np.cos(source_frequency * np.pi * t / alpha))
+    else:
+        window = 1.0
+
+    # Update boundary condition
+    g[:] = window * source_amplitude * angular_frequency / \
+        speed_of_sound * np.cos(angular_frequency * t)
+
+    # Update fields
+    u_n[:] = u[:]
+    v_n[:] = v[:]
+
+    # Assemble RHS
+    b[:] = 0.0
+    stiffness_operator(u_n, cell_coeff2, b, G, dofmap, dphi_1D, nd, float_type)
+    mass_operator(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
+    mass_operator(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
+
+    # Solve
+    pointwise_divide(b, m, result)
+
+
+# --------------- #
+# Solve using RK4 #
+# --------------- #
+
+# Runge-Kutta data
+n_rk = 4
+a_runge = np.array([0.0, 0.5, 0.5, 1.0])
+b_runge = np.array([1.0/6.0, 1.0/3.0, 1.0/3.0, 1.0/6.0])
+c_runge = np.array([0.0, 0.5, 0.5, 1.0])
+
+# Solution vector at time step 
+u_ = u_n.copy()
+v_ = v_n.copy()
+
+# Solution vectors at intermediate time step
+un = u_.copy()
+vn = v_.copy()
+
+# Solution vectors at start of time step
+u0 = un.copy()
+v0 = vn.copy()
+
+# Slope vectors at intermediate time step
+ku = u0.copy()
+kv = v0.copy()
+
+# Temporal data
+ts = start_time
+tf = final_time
+dt = time_step_size
+step = 0
+nstep = int((tf - ts) / dt) + 1
+
+t = start_time
+print("Solve!")
+tic = time.time()
+while t < tf:
+    dt = min(dt, tf-t)
+
+    # Store solution at start of time step
+    copy(u_, u0)
+    copy(v_, v0)
+
+    # Runge-Kutta step
+    for i in range(n_rk):
+        copy(u0, un)
+        copy(v0, vn)
+
+        axpy(a_runge[i]*dt, ku, un)
+        axpy(a_runge[i]*dt, kv, vn)
+
+        tn = t + c_runge[i] * dt
+
+        # Evaluate slopes
+        copy(vn, ku)
+        f(tn, un, vn, kv)
+
+        # Update solution
+        axpy(b_runge[i]*dt, ku, u_)
+        axpy(b_runge[i]*dt, kv, v_)
+    
+    # Update time
+    t += dt
+    step += 1
+
+    if step % 1 == 0 and MPI.COMM_WORLD.rank == 0:
+        print(f"t: {t:5.5},\t Steps: {step}/{nstep}", flush=True)
+
+    copy(u_, u_n)
+    copy(v_, v_n)
+toc = time.time()
+elapsed = toc - tic
+
+print(f"Solve time: {elapsed}")
+print(f"Solve time per step: {elapsed/nstep}")
+
+# --------------------- #
+# Output final solution #
+# --------------------- #
+
+print(u_n)
