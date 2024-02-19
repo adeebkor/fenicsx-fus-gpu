@@ -15,6 +15,7 @@ import numba
 
 from sum_factorisation import contract, transpose
 
+
 @numba.njit(fastmath=True)
 def mass_operator(
         x: npt.NDArray[np.floating],
