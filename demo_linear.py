@@ -13,7 +13,7 @@ from mpi4py import MPI
 
 import basix
 import basix.ufl
-from dolfinx import cpp
+from dolfinx import cpp, la
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import locate_entities_boundary, create_box, CellType
@@ -118,16 +118,22 @@ dofmap = V.dofmap.list
 
 # Define functions
 u0 = Function(V, dtype=float_type)
+u_n_ = la.vector(V.dofmap.index_map)
+v_n_ = la.vector(V.dofmap.index_map)
 
 # Get the numpy array
 u = u0.x.array
 g = u.copy()
-u_n = u.copy()
-v_n = u.copy()
+u_n = u_n_.array
+v_n = v_n_.array
 
-# Create array for LHS and RHS vector
-m = u.copy()
-b = u.copy()
+# Create LHS and RHS vector
+m_ = la.vector(V.dofmap.index_map)
+b_ = la.vector(V.dofmap.index_map)
+
+# Get array for LHS and RHS vector
+m = m_.array
+b = b_.array
 
 # Compute geometric data of cell entities
 pts, wts = basix.quadrature.make_quadrature(
@@ -247,6 +253,7 @@ u[:] = 1.0
 
 m[:] = 0.0
 mass_operator(u, cell_coeff1, m, detJ, dofmap)
+m_.scatter_reverse(la.InsertMode.add)
 
 # Set initial values for un and vn
 u_n[:] = 0.0
@@ -287,13 +294,16 @@ def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
 
     # Update fields
     u_n[:] = u[:]
+    u_n_.scatter_forward()
     v_n[:] = v[:]
+    v_n_.scatter_forward()
 
     # Assemble RHS
     b[:] = 0.0
     stiffness_operator(u_n, cell_coeff2, b, G, dofmap, dphi_1D, nd, float_type)
     mass_operator(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
     mass_operator(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
+    b_.scatter_reverse(la.InsertMode.add)
 
     # Solve
     pointwise_divide(b, m, result)
@@ -369,6 +379,9 @@ while t < tf:
 
     copy(u_, u_n)
     copy(v_, v_n)
+    u_n_.scatter_forward()
+    v_n_.scatter_forward()
+
 toc = time.time()
 elapsed = toc - tic
 
