@@ -1,6 +1,6 @@
 #
 # Linear wave
-# - Heterogenous media
+# - Homogenous media
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
