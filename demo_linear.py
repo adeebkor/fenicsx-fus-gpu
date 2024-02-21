@@ -118,8 +118,8 @@ dofmap = V.dofmap.list
 
 # Define functions
 u0 = Function(V, dtype=float_type)
-u_n_ = la.vector(V.dofmap.index_map)
-v_n_ = la.vector(V.dofmap.index_map)
+u_n_ = la.vector(V.dofmap.index_map, dtype=float_type)
+v_n_ = la.vector(V.dofmap.index_map, dtype=float_type)
 
 # Get the numpy array
 u = u0.x.array
@@ -128,8 +128,8 @@ u_n = u_n_.array
 v_n = v_n_.array
 
 # Create LHS and RHS vector
-m_ = la.vector(V.dofmap.index_map)
-b_ = la.vector(V.dofmap.index_map)
+m_ = la.vector(V.dofmap.index_map, dtype=float_type)
+b_ = la.vector(V.dofmap.index_map, dtype=float_type)
 
 # Get array for LHS and RHS vector
 m = m_.array
@@ -147,12 +147,16 @@ gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 # Compute scaled Jacobian determinant (cell)
-print("Computing scaled Jacobian determinant (cell)")
+if MPI.COMM_WORLD.rank == 0:
+    print("Computing scaled Jacobian determinant (cell)", flush=True)
+
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
-# Compute scaled geometrical factor (J^{-T}J_{-1}) 
-print("Computing scaled geometrical factor")
+# Compute scaled geometrical factor (J^{-T}J_{-1})
+if MPI.COMM_WORLD.rank == 0:
+    print("Computing scaled geometrical factor", flush=True)
+
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
@@ -193,13 +197,15 @@ for f in range(6):
     dphi_f[f, :, :, :] = gtable_f[1:, :, :, 0]
 
 # Compute scaled Jacobian determinant (source facets)
-print("Computing scaled Jacobian determinant (source facets)")
+if MPI.COMM_WORLD.rank == 0:
+    print("Computing scaled Jacobian determinant (source facets)", flush=True)
 detJ_f1 = np.zeros((boundary_data1.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f, float_type)
 
 # Compute scaled Jacobian determinant (absorbing facets)
-print("Computing scaled Jacobian determinant (absorbing facets)")
+if MPI.COMM_WORLD.rank == 0:
+    print("Computing scaled Jacobian determinant (absorbing facets)", flush=True)
 detJ_f2 = np.zeros((boundary_data2.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f, float_type)
@@ -258,6 +264,10 @@ m_.scatter_reverse(la.InsertMode.add)
 # Set initial values for un and vn
 u_n[:] = 0.0
 v_n[:] = 0.0
+
+if MPI.COMM_WORLD.rank == 0:
+    print(m)
+exit()
 
 # ------------------ #
 # RK slope functions #
