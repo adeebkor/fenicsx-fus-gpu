@@ -37,8 +37,8 @@ cuda.detect()
 
 P = 4  # Basis function order
 Q = {
-  2: 3,
-  3: 4,
+    2: 3,
+    3: 4,
     4: 6,
     5: 8,
     6: 10,
@@ -117,8 +117,8 @@ dphi_1D = table_1D[1, :, :, 0]
 nd = dphi_1D.shape[1]
 
 # set the number of threads in a block
-threadsperblock = 128
-numb_blocks = (dofmap.size + (threadsperblock - 1)) // threadsperblock
+threadsperblock = (nd, nd, nd)
+num_blocks = num_cells
 
 # Allocate memory on the device
 G_d = cuda.to_device(G)
@@ -131,5 +131,25 @@ nd_d = cuda.to_device(nd)
 
 # Call the stiffness operator function
 print("Running operator!")
-stiffness_operator[numb_blocks, threadsperblock](u_d, coeffs_d, b_d, G_d, dofmap_d, dphi_1D_d)
+stiffness_operator[num_blocks, threadsperblock](u_d, coeffs_d, b_d, G_d, dofmap_d, dphi_1D_d)
 print("Done!")
+
+# Copy the result back to the host
+b_d.copy_to_host(b)
+
+# Use DOLFINx assembler for comparison
+md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
+
+v = TestFunction(V)
+a_dolfinx = form(- inner(grad(u0), grad(v)) * dx(metadata=md), dtype=float_type)
+
+b_dolfinx = assemble_vector(a_dolfinx)
+
+# Check the difference between the vectors
+print(
+    "Euclidean difference: ",
+    np.linalg.norm(b - b_dolfinx.array) / np.linalg.norm(b_dolfinx.array),
+)
+
+# Test the closeness between the vectors
+np.testing.assert_allclose(b[:], b_dolfinx.array[:], atol=tol)
