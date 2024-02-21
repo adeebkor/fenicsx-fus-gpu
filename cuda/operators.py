@@ -98,55 +98,69 @@ def stiffness_operator(
     ty = cuda.threadIdx.y
     tz = cuda.threadIdx.z
 
-    thread_id = tx * nd**2 + ty * nd + tz
+    thread_id = tx * cuda.blockDim.y * cuda.blockDim.z + ty * cuda.blockDim.z + tz 
     block_id = cuda.blockIdx.x
 
-    x_ = cuda.shared.array(shape=(nd, nd, nd), dtype=float_type)
-    y_ = cuda.shared.array(shape=(nd, nd, nd), dtype=float_type)
-    z_ = cuda.shared.array(shape=(nd, nd, nd), dtype=float_type)
-
-    w0 = cuda.shared.array(shape=(nd, nd, nd), dtype=float_type)
-    w1 = cuda.shared.array(shape=(nd, nd, nd), dtype=float_type)
-    w2 = cuda.shared.array(shape=(nd, nd, nd), dtype=float_type)
+    scratch = cuda.shared.array(shape=(nd, nd, nd), dtype=float_type)
   
     # Get dof index that this thread is computing
     dof = entity_dofmap[block_id, thread_id]
 
     # Gather x expression value required by this thread
-    x_[tz, ty, tx] = x[dof]
-    y_[tx, tz, ty] = x[dof]
-    z_[tx, ty, tz] = x[dof]
+    scratch[tx, ty, tz] = x[dof]
     cuda.syncthreads()
 
     # Apply contraction in the x-direction
     val_x = 0.0
     for ix in range(nd):
-      val_x += dphi[tx, ix] * x_[tz, ty, ix]
-
-    w0[tx, ty, tz] = val_x
+      val_x += dphi[tx, ix] * scratch[ix, ty, tz]
 
     # Apply contraction in the y-direction
     val_y = 0.0
     for iy in range(nd):
-      val_y += dphi[ty, iy] * y_[tx, tz, iy]
-
-    w1[tx, ty, tz] = val_y
+      val_y += dphi[ty, iy] * scratch[tx, iy, tz]
 
     # Apply contraction in the z-direction
     val_z = 0.0
     for iz in range(nd):
-      val_z += dphi[tz, iz] * z_[tx, ty, iz]
-
-    w2[tx, ty, tz] = val_z
+      val_z += dphi[tz, iz] * scratch[tx, ty, iz]
 
     # Apply transform
-    fw0 = entity_constants[block_id] * (
-      G_entity[block_id] * w0[tx, ty, tz] + G_entity[block_id] * w1[tx, ty, tz]
-      + G_entity[block_id] * w2[tx, ty, tz])
-    fw1 = entity_constants[block_id] * (
-      G_entity[block_id] * w0[tx, ty, tz] + G_entity[block_id] * w1)
-    fw2 = entity_constants[block_id] * (G_entity[block_id] * w0[tx, ty, tz] + G_entity[block_id] * val_y)
+    G0 = G_entity[block_id, thread_id, 0] 
+    G1 = G_entity[block_id, thread_id, 1] 
+    G2 = G_entity[block_id, thread_id, 2] 
+    G3 = G_entity[block_id, thread_id, 3] 
+    G4 = G_entity[block_id, thread_id, 4] 
+    G5 = G_entity[block_id, thread_id, 5]
+    coeff = entity_constants[block_id]
 
+    fw0 = coeff * (G0 * val_x + G1 * val_y + G2 * val_z)
+    fw1 = coeff * (G1 * val_x + G3 * val_y + G4 * val_z)
+    fw2 = coeff * (G2 * val_x + G4 * val_y + G5 * val_z)
+    
+    # Apply contraction in the x-direction
+    scratch[tx, ty, tz] = fw0
+    cuda.syncthreads()
+    
+    val_x = 0.0
+    for ix in range(nd):
+       val_x += dphi[ix, tx] * scratch[ix, ty, tz]
 
+    scratch[tx, ty, tz] = fw1
+    cuda.syncthreads()
 
+    val_y = 0.0
+    for iy in range(nd):
+       val_y += dphi[iy, ty] * scratch[tx, iy, tz]
 
+    scratch[tx, ty, tz] = fw2
+    cuda.syncthreads()
+
+    val_z = 0.0
+    for iz in range(nd):
+       val_z += dphi[iz, tz] * scratch[tx, ty, iz]
+
+    val = val_x + val_y + val_z
+
+    # Atomically add the computed value to the output array `y`
+    cuda.atomic.add(y, dof, val)
