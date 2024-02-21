@@ -6,8 +6,6 @@
 # =============================================================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
-from time import perf_counter_ns
-
 import numpy as np
 from mpi4py import MPI
 
@@ -95,7 +93,7 @@ dphi = gtable[1:, :, :, 0]
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
-# Compute scaled geometrical factor (J^{-T}J_{-1}) 
+# Compute scaled geometrical factor (J^{-T}J_{-1})
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
@@ -215,7 +213,7 @@ a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 b3_dolfinx = assemble_vector(a3_dolfinx)
 
 # Check the difference between the vectors
-bfacet_difference =  np.linalg.norm(
+bfacet_difference = np.linalg.norm(
     b - b3_dolfinx.array) / np.linalg.norm(b3_dolfinx.array)
 print(f"Euclidean difference (boundary operator): {bfacet_difference}")
 

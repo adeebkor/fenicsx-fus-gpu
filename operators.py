@@ -15,6 +15,7 @@ import numba
 
 from sum_factorisation import contract, transpose
 
+
 @numba.njit(fastmath=True)
 def mass_operator(
         x: npt.NDArray[np.floating],
@@ -210,6 +211,21 @@ def copy(a: npt.NDArray[np.floating], b: npt.NDArray[np.floating]):
 
     for i in range(a.size):
         b[i] = a[i]
+
+
+@numba.njit
+def fill(alpha: np.floating, x: npt.NDArray[np.floating]):
+    """
+    Fill the entries of vector x with scalar alpha
+
+    Parameters
+    ----------
+    alpha : scalar
+    x : vector
+    """
+
+    for i in range(x.size):
+        x[i] = alpha
 
 
 @numba.njit(fastmath=True)
