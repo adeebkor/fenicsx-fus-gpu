@@ -16,7 +16,7 @@ import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import XDMFFile
-from dolfinx.mesh import locate_entities_boundary, create_box, CellType
+from dolfinx.mesh import locate_entities_boundary, create_box, CellType, GhostMode
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
@@ -58,7 +58,7 @@ quadrature_degree = {
 # Read mesh and mesh tags
 with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
     mesh_name = "planar_3d_0"
-    mesh = fmesh.read_mesh(name=f"{mesh_name}")
+    mesh = fmesh.read_mesh(name=f"{mesh_name}", ghost_mode=GhostMode.none)
     tdim = mesh.topology.dim
     gdim = mesh.geometry.dim
     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")

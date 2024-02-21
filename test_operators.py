@@ -12,7 +12,7 @@ from mpi4py import MPI
 import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
-from dolfinx.mesh import create_box, locate_entities_boundary, CellType
+from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
 from ufl import inner, grad, ds, dx, TestFunction
 
 from precompute import (compute_scaled_jacobian_determinant,
@@ -44,7 +44,8 @@ Q = {
 N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
+    (N, N, N), cell_type=CellType.hexahedron, ghost_mode=GhostMode.none,
+    dtype=float_type)
 
 # Mesh geometry data
 x_dofs = mesh.geometry.dofmap
@@ -93,11 +94,12 @@ dphi = gtable[1:, :, :, 0]
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
+cell_constants = np.ones(dofmap.shape[0], dtype=float_type)
+
 # Compute scaled geometrical factor (J^{-T}J_{-1})
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
-cell_constants = np.ones(dofmap.shape[0], dtype=float_type)
 
 # Compute geometric data of boundary facet entities
 boundary_facets = locate_entities_boundary(
