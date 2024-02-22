@@ -15,15 +15,18 @@ import basix
 import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import functionspace, Function
-from dolfinx.io import XDMFFile
-from dolfinx.mesh import locate_entities_boundary, create_box, CellType, GhostMode
+from dolfinx.io import XDMFFile, VTXWriter
+from dolfinx.mesh import GhostMode
+
+from ufl import dx, grad, inner, Measure, TestFunction
+from dolfinx.fem import form, assemble_vector
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
                         compute_boundary_facets_scaled_jacobian_determinant)
 from operators import (mass_operator, stiffness_operator, axpy, copy, 
                        pointwise_divide)
-from utils import facet_integration_domain
+from utils import facet_integration_domain, compute_eval_params
 
 float_type = np.float64
 
@@ -65,13 +68,6 @@ with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
     mesh.topology.create_connectivity(tdim-1, tdim)
     mt_facet = fmesh.read_meshtags(mesh, name=f"{mesh_name}_facets")
 
-# N = 16
-# mesh = create_box(
-#     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-#     (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
-# tdim = mesh.topology.dim
-# gdim = mesh.geometry.dim
-
 # Mesh parameters
 num_cells = mesh.topology.index_map(tdim).size_local
 hmin = np.array([cpp.mesh.h(
@@ -80,15 +76,10 @@ mesh_size = np.zeros(1)
 MPI.COMM_WORLD.Reduce(hmin, mesh_size, op=MPI.MIN, root=0)
 MPI.COMM_WORLD.Bcast(mesh_size, root=0)
 
-# Define a DG function space for the material parameters
-V_DG = functionspace(mesh, ("DG", 0))
-c0 = Function(V_DG)
-c0.x.array[:] = speed_of_sound
-c0_ = c0.x.array
-
-rho0 = Function(V_DG)
-rho0.x.array[:] = density
-rho0_ = rho0.x.array
+# Mesh geometry data
+x_dofs = mesh.geometry.dofmap
+x_g = mesh.geometry.x
+cell_type = mesh.basix_cell()
 
 # Temporal parameters
 CFL = 0.65
@@ -96,13 +87,46 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-final_time = 20 * time_step_size # domain_length / speed_of_sound + 8.0 / source_frequency
+# final_time = domain_length / speed_of_sound + 8.0 / source_frequency
+final_time = 0.04 / speed_of_sound + 8.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
-# Mesh geometry data
-x_dofs = mesh.geometry.dofmap
-x_g = mesh.geometry.x
-cell_type = mesh.basix_cell()
+# Evaluation parameters
+npts_x = 141
+npts_z = 241
+
+x_p = np.linspace(-0.035, 0.035, npts_x, dtype=float_type)
+z_p = np.linspace(0, domain_length, npts_z, dtype=float_type)
+
+X_p, Z_p = np.meshgrid(x_p, z_p)
+
+points = np.zeros((3, npts_x*npts_z), dtype=float_type)
+points[0] = X_p.flatten()
+points[2] = Z_p.flatten()
+
+x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
+
+data = np.zeros_like(x_eval, dtype=float_type)
+
+try:
+    data[:, 0] = x_eval[:, 0]
+    data[:, 1] = x_eval[:, 2]
+except:
+    pass
+
+num_step_per_period = step_per_period + 2
+step_period = 0
+
+# Define a DG function space for the material parameters
+V_DG = functionspace(mesh, ("DG", 0))
+
+c0 = Function(V_DG, dtype=float_type)
+c0.x.array[:] = speed_of_sound
+c0_ = c0.x.array
+
+rho0 = Function(V_DG, dtype=float_type)
+rho0.x.array[:] = density
+rho0_ = rho0.x.array
 
 # Tensor product element
 family = basix.ElementFamily.P
@@ -118,14 +142,14 @@ dofmap = V.dofmap.list
 
 # Define functions
 u0 = Function(V, dtype=float_type)
-u_n_ = la.vector(V.dofmap.index_map, dtype=float_type)
-v_n_ = la.vector(V.dofmap.index_map, dtype=float_type)
+u_n_ = Function(V, dtype=float_type)
+v_n_ = Function(V, dtype=float_type)
 
 # Get the numpy array
 u = u0.x.array
 g = u.copy()
-u_n = u_n_.array
-v_n = v_n_.array
+u_n = u_n_.x.array
+v_n = v_n_.x.array
 
 # Create LHS and RHS vector
 m_ = la.vector(V.dofmap.index_map, dtype=float_type)
@@ -265,9 +289,7 @@ m_.scatter_reverse(la.InsertMode.add)
 u_n[:] = 0.0
 v_n[:] = 0.0
 
-if MPI.COMM_WORLD.rank == 0:
-    print(m)
-exit()
+size_local = m_.index_map.size_local
 
 # ------------------ #
 # RK slope functions #
@@ -304,9 +326,9 @@ def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
 
     # Update fields
     u_n[:] = u[:]
-    u_n_.scatter_forward()
+    u_n_.x.scatter_forward()
     v_n[:] = v[:]
-    v_n_.scatter_forward()
+    v_n_.x.scatter_forward()
 
     # Assemble RHS
     b[:] = 0.0
@@ -353,7 +375,10 @@ step = 0
 nstep = int((tf - ts) / dt) + 1
 
 t = start_time
-print("Solve!")
+
+if MPI.COMM_WORLD.rank == 0:
+    print("Solve!", flush=True)
+
 tic = time.time()
 while t < tf:
     dt = min(dt, tf-t)
@@ -367,8 +392,8 @@ while t < tf:
         copy(u0, un)
         copy(v0, vn)
 
-        axpy(a_runge[i]*dt, ku, un)
-        axpy(a_runge[i]*dt, kv, vn)
+        axpy(a_runge[i]*dt, ku, un, size_local)
+        axpy(a_runge[i]*dt, kv, vn, size_local)
 
         tn = t + c_runge[i] * dt
 
@@ -377,29 +402,65 @@ while t < tf:
         f(tn, un, vn, kv)
 
         # Update solution
-        axpy(b_runge[i]*dt, ku, u_)
-        axpy(b_runge[i]*dt, kv, v_)
+        axpy(b_runge[i]*dt, ku, u_, size_local)
+        axpy(b_runge[i]*dt, kv, v_, size_local)
     
     # Update time
     t += dt
     step += 1
 
-    if step % 1 == 0 and MPI.COMM_WORLD.rank == 0:
-        print(f"t: {t:5.5},\t Steps: {step}/{nstep}", flush=True)
+    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
+        print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
-    copy(u_, u_n)
-    copy(v_, v_n)
-    u_n_.scatter_forward()
-    v_n_.scatter_forward()
+    # ------------ #
+    # Collect data #
+    # ------------ #
+
+    # if (t > 0.12 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
+    if (t > 0.04 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
+        # Copy data to function
+        copy(u_, u_n)
+        u_n_.x.scatter_forward()
+
+        # Evaluate function
+        u_n_eval = u_n_.eval(x_eval, cell_eval)
+
+        try:
+            data[:, 2] = u_n_eval.flatten()
+        except:
+            pass
+
+        # Write evaluation from each process into a single file
+        MPI.COMM_WORLD.Barrier()
+
+        for i in range(MPI.COMM_WORLD.size):
+            if MPI.COMM_WORLD.rank == i:
+                fname = f"/home/shared/data/pressure_field_{step_period}.txt"
+                f_data = open(fname, "a")
+                np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
+                f_data.close()
+    
+            MPI.COMM_WORLD.Barrier()
+
+        step_period += 1
+    # --------------------------------------------------------------
+
+copy(u_, u_n)
+copy(v_, v_n)
+u_n_.x.scatter_forward()
+v_n_.x.scatter_forward()
 
 toc = time.time()
 elapsed = toc - tic
 
-print(f"Solve time: {elapsed}")
-print(f"Solve time per step: {elapsed/nstep}")
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Solve time: {elapsed}")
+    print(f"Solve time per step: {elapsed/nstep}")
 
 # --------------------- #
 # Output final solution #
 # --------------------- #
 
-print(u_n)
+with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
+    f.write(0.0)
+
