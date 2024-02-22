@@ -182,7 +182,8 @@ def stiffness_operator(
 @numba.njit(fastmath=True)
 def axpy(alpha: np.floating,
          x: npt.NDArray[np.floating],
-         y: npt.NDArray[np.floating]):
+         y: npt.NDArray[np.floating],
+         n: int):
 
     """
     AXPY: y = a*x + y
@@ -194,7 +195,7 @@ def axpy(alpha: np.floating,
     y : input and output vector
     """
 
-    for i in range(y.size):
+    for i in range(n):
         y[i] = alpha*x[i] + y[i]
 
 
