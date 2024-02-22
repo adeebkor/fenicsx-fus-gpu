@@ -57,7 +57,6 @@ quadrature_degree = {
     10: 18,
 }
 
-
 # Read mesh and mesh tags
 with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
     mesh_name = "planar_3d_0"
@@ -88,8 +87,11 @@ step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
 # final_time = domain_length / speed_of_sound + 8.0 / source_frequency
-final_time = 0.04 / speed_of_sound + 8.0 / source_frequency
+final_time = 0.01 / speed_of_sound + 8.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
+
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Number of steps: {number_of_step}", flush=True)
 
 # Evaluation parameters
 npts_x = 141
@@ -417,7 +419,7 @@ while t < tf:
     # ------------ #
 
     # if (t > 0.12 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
-    if (t > 0.04 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
+    if (t > 0.01 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
         # Copy data to function
         copy(u_, u_n)
         u_n_.x.scatter_forward()
