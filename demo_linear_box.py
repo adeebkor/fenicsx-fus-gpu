@@ -39,7 +39,7 @@ speed_of_sound = 1500.0
 density = 1000.0
 
 # Domain parameters
-domain_length = 0.06
+domain_length = 0.015
 
 # FE parameters
 basis_degree = 4
@@ -91,11 +91,36 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-final_time = domain_length / speed_of_sound #+ 8.0 / source_frequency
+final_time = domain_length / speed_of_sound + 2.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
 if MPI.COMM_WORLD.rank == 0:
     print(f"Number of steps: {int(number_of_step)}", flush=True)
+
+# -----------------------------------------------------------------------------
+# Evaluation parameters
+npts_x = 100
+npts_y = 100
+
+x_p = np.linspace(0, domain_length, npts_x, dtype=float_type)
+y_p = np.linspace(0, domain_length, npts_y, dtype=float_type)
+
+X_p, Y_p = np.meshgrid(x_p, y_p)
+
+points = np.zeros((3, npts_x*npts_y), dtype=float_type)
+points[0] = X_p.flatten()
+points[1] = Y_p.flatten()
+
+x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
+
+data = np.zeros_like(x_eval, dtype=float_type)
+
+try:
+    data[:, 0] = x_eval[:, 0]
+    data[:, 1] = x_eval[:, 1]
+except:
+    pass
+# -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
@@ -395,7 +420,7 @@ while t < tf:
     t += dt
     step += 1
 
-    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
+    if step % 10 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
 copy(u_, u_n)
@@ -442,3 +467,39 @@ u_final_1.interpolate(u_n_)
 with XDMFFile(MPI.COMM_WORLD, "output_final.xdmf", "w") as f_xdmf:
     f_xdmf.write_mesh(mesh)
     f_xdmf.write_function(u_final_1)
+
+from dolfinx.fem import form, assemble_scalar
+from ufl import inner, dx
+
+norm_0 = mesh.comm.allreduce(assemble_scalar(form(inner(u_n_, u_n_)*dx)), op=MPI.SUM)
+norm_1 = mesh.comm.allreduce(assemble_scalar(form(inner(u_final, u_final)*dx)), op=MPI.SUM)
+print(norm_0, norm_1)
+
+# ------------ #
+# Collect data #
+# ------------ #
+
+# Copy data to function
+u_final.x.scatter_forward()
+
+# Evaluate function
+u_n_eval = u_final.eval(x_eval, cell_eval)
+
+try:
+    data[:, 2] = u_n_eval.flatten()
+except:
+    pass
+
+# Write evaluation from each process into a single file
+MPI.COMM_WORLD.Barrier()
+
+for i in range(MPI.COMM_WORLD.size):
+    if MPI.COMM_WORLD.rank == i:
+        fname = f"/home/shared/pressure_field.txt"
+        f_data = open(fname, "a")
+        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
+        f_data.close()
+
+    MPI.COMM_WORLD.Barrier()
+
+# --------------------------------------------------------------
