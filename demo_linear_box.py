@@ -137,13 +137,19 @@ rho0_ = rho0.x.array
 family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 
-basix_element = basix.create_tp_element(
+basix_element_tp = basix.create_tp_element(
     family, cell_type, basis_degree, variant)
+perm = np.argsort(np.array(basix_element_tp.dof_ordering, dtype=np.int32))
+
+# Basix element
+basix_element = basix.create_element(
+    family, cell_type, basis_degree, variant
+)
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Define function space and functions
 V = functionspace(mesh, element)
-dofmap = V.dofmap.list
+dofmap = V.dofmap.list[:, perm]
 
 # Define functions
 u0 = Function(V, dtype=float_type)
@@ -204,7 +210,7 @@ boundary_data1 = facet_integration_domain(
 boundary_data2 = facet_integration_domain(
     boundary_facets2, mesh)  # cells with boundary facets (absorbing)
 local_facet_dof = np.array(
-    basix_element.entity_closure_dofs[2],
+    basix_element_tp.entity_closure_dofs[2],
     dtype=np.int32)  # local DOF on facets
 
 pts_f, wts_f = basix.quadrature.make_quadrature(
@@ -439,51 +445,18 @@ if MPI.COMM_WORLD.rank == 0:
 # Output final solution #
 # --------------------- #
 
-# Basix order element
-family_ = basix.ElementFamily.P
-variant_ = basix.LagrangeVariant.gll_warped
-cell_type_ = mesh.basix_cell()
-
-basix_element_ = basix.create_element(family_, cell_type_, basis_degree, variant_)
-element_ = basix.ufl._BasixElement(basix_element_)  # basix ufl element
-
-# Create function space
-V_ = functionspace(mesh, element_)
-
-u_final = Function(V_, dtype=float_type)
-u_final.interpolate(u_n_)
-
-with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_final, "bp4") as f:
+with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
     f.write(0.0)
-
-basix_element_1 = basix.create_element(family_, cell_type_, 1, variant_)
-element_1 = basix.ufl._BasixElement(basix_element_1)  # basix ufl element
-
-# Create function space
-V_1 = functionspace(mesh, element_1)
-u_final_1 = Function(V_1, dtype=float_type)
-u_final_1.interpolate(u_n_)
-
-with XDMFFile(MPI.COMM_WORLD, "output_final.xdmf", "w") as f_xdmf:
-    f_xdmf.write_mesh(mesh)
-    f_xdmf.write_function(u_final_1)
-
-from dolfinx.fem import form, assemble_scalar
-from ufl import inner, dx
-
-norm_0 = mesh.comm.allreduce(assemble_scalar(form(inner(u_n_, u_n_)*dx)), op=MPI.SUM)
-norm_1 = mesh.comm.allreduce(assemble_scalar(form(inner(u_final, u_final)*dx)), op=MPI.SUM)
-print(norm_0, norm_1)
 
 # ------------ #
 # Collect data #
 # ------------ #
 
 # Copy data to function
-u_final.x.scatter_forward()
+u_n_.x.scatter_forward()
 
 # Evaluate function
-u_n_eval = u_final.eval(x_eval, cell_eval)
+u_n_eval = u_n_.eval(x_eval, cell_eval)
 
 try:
     data[:, 2] = u_n_eval.flatten()
