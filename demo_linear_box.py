@@ -1,5 +1,6 @@
 #
 # Linear wave
+# - Plane wave
 # - Homogenous media
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
@@ -16,10 +17,7 @@ import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import XDMFFile, VTXWriter
-from dolfinx.mesh import GhostMode
-
-from ufl import dx, grad, inner, Measure, TestFunction
-from dolfinx.fem import form, assemble_vector
+from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
@@ -31,17 +29,17 @@ from utils import facet_integration_domain, compute_eval_params
 float_type = np.float64
 
 # Source parameters
-source_frequency = 0.5e6  # Hz
-source_amplitude = 60000.0  # Pa
-period = 1.0 / source_frequency  # s
-angular_frequency = 2.0 * np.pi * source_frequency  # rad/s
+source_frequency = 0.5e6
+source_amplitude = 60000.0 
+period = 1.0 / source_frequency
+angular_frequency = 2.0 * np.pi * source_frequency
 
 # Material parameters
-speed_of_sound = 1500.0  # m/s
-density = 1000.0  # kg/m^3
+speed_of_sound = 1500.0
+density = 1000.0
 
 # Domain parameters
-domain_length = 0.12  # m
+domain_length = 0.015
 
 # FE parameters
 basis_degree = 4
@@ -57,17 +55,24 @@ quadrature_degree = {
     10: 18,
 }
 
-# Read mesh and mesh tags
-with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
-    mesh_name = "planar_3d_0"
-    mesh = fmesh.read_mesh(name=f"{mesh_name}", ghost_mode=GhostMode.none)
-    tdim = mesh.topology.dim
-    gdim = mesh.geometry.dim
-    mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
-    mesh.topology.create_connectivity(tdim-1, tdim)
-    mt_facet = fmesh.read_meshtags(mesh, name=f"{mesh_name}_facets")
-
 # Mesh parameters
+lmbda = speed_of_sound / source_frequency
+num_of_waves = domain_length / lmbda
+num_element = int(2 * num_of_waves)
+
+# Create mesh
+mesh = create_box(
+    MPI.COMM_WORLD,
+    ((0., 0., 0.), (domain_length, domain_length, domain_length)),
+    (num_element, num_element, num_element),
+    cell_type=CellType.hexahedron,
+    ghost_mode=GhostMode.none,
+    dtype=float_type
+)
+
+# Mesh data
+tdim = mesh.topology.dim
+gdim = mesh.geometry.dim
 num_cells = mesh.topology.index_map(tdim).size_local
 hmin = np.array([cpp.mesh.h(
     mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()])
@@ -86,25 +91,25 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-# final_time = domain_length / speed_of_sound + 8.0 / source_frequency
-final_time = 0.01 / speed_of_sound + 8.0 / source_frequency
+final_time = domain_length / speed_of_sound + 2.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
 if MPI.COMM_WORLD.rank == 0:
-    print(f"Number of steps: {number_of_step}", flush=True)
+    print(f"Number of steps: {int(number_of_step)}", flush=True)
 
+# -----------------------------------------------------------------------------
 # Evaluation parameters
-npts_x = 141
-npts_z = 241
+npts_x = 100
+npts_y = 100
 
-x_p = np.linspace(-0.035, 0.035, npts_x, dtype=float_type)
-z_p = np.linspace(0, domain_length, npts_z, dtype=float_type)
+x_p = np.linspace(0, domain_length, npts_x, dtype=float_type)
+y_p = np.linspace(0, domain_length, npts_y, dtype=float_type)
 
-X_p, Z_p = np.meshgrid(x_p, z_p)
+X_p, Y_p = np.meshgrid(x_p, y_p)
 
-points = np.zeros((3, npts_x*npts_z), dtype=float_type)
+points = np.zeros((3, npts_x*npts_y), dtype=float_type)
 points[0] = X_p.flatten()
-points[2] = Z_p.flatten()
+points[1] = Y_p.flatten()
 
 x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
 
@@ -112,12 +117,10 @@ data = np.zeros_like(x_eval, dtype=float_type)
 
 try:
     data[:, 0] = x_eval[:, 0]
-    data[:, 1] = x_eval[:, 2]
+    data[:, 1] = x_eval[:, 1]
 except:
     pass
-
-num_step_per_period = step_per_period + 2
-step_period = 0
+# -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
@@ -134,13 +137,19 @@ rho0_ = rho0.x.array
 family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 
-basix_element = basix.create_tp_element(
+basix_element_tp = basix.create_tp_element(
     family, cell_type, basis_degree, variant)
+perm = np.argsort(np.array(basix_element_tp.dof_ordering, dtype=np.int32))
+
+# Basix element
+basix_element = basix.create_element(
+    family, cell_type, basis_degree, variant
+)
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Define function space and functions
 V = functionspace(mesh, element)
-dofmap = V.dofmap.list
+dofmap = V.dofmap.list[:, perm]
 
 # Define functions
 u0 = Function(V, dtype=float_type)
@@ -186,16 +195,22 @@ if MPI.COMM_WORLD.rank == 0:
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
-# Compute geometric data of boundary facet entities
-boundary_facets1 = mt_facet.indices[mt_facet.values == 1]
-boundary_facets2 = mt_facet.indices[mt_facet.values == 2]
+# Boundary facet (source)
+boundary_facets1 = locate_entities_boundary(
+    mesh, mesh.topology.dim-1, lambda x: np.isclose(x[0], np.finfo(float).eps)
+)
+
+# Boundary facet (absorbing)
+boundary_facets2 = locate_entities_boundary(
+    mesh, mesh.topology.dim-1, lambda x: np.isclose(x[0], domain_length)
+)
 
 boundary_data1 = facet_integration_domain(
     boundary_facets1, mesh)  # cells with boundary facets (source)
 boundary_data2 = facet_integration_domain(
     boundary_facets2, mesh)  # cells with boundary facets (absorbing)
 local_facet_dof = np.array(
-    basix_element.entity_closure_dofs[2],
+    basix_element_tp.entity_closure_dofs[2],
     dtype=np.int32)  # local DOF on facets
 
 pts_f, wts_f = basix.quadrature.make_quadrature(
@@ -225,7 +240,6 @@ for f in range(6):
 # Compute scaled Jacobian determinant (source facets)
 if MPI.COMM_WORLD.rank == 0:
     print("Computing scaled Jacobian determinant (source facets)", flush=True)
-
 detJ_f1 = np.zeros((boundary_data1.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f, float_type)
@@ -233,7 +247,6 @@ compute_boundary_facets_scaled_jacobian_determinant(
 # Compute scaled Jacobian determinant (absorbing facets)
 if MPI.COMM_WORLD.rank == 0:
     print("Computing scaled Jacobian determinant (absorbing facets)", flush=True)
-
 detJ_f2 = np.zeros((boundary_data2.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f, float_type)
@@ -413,41 +426,8 @@ while t < tf:
     t += dt
     step += 1
 
-    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
+    if step % 10 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
-
-    # ------------ #
-    # Collect data #
-    # ------------ #
-
-    # if (t > 0.12 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
-    if (t > 0.01 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
-        # Copy data to function
-        copy(u_, u_n)
-        u_n_.x.scatter_forward()
-
-        # Evaluate function
-        u_n_eval = u_n_.eval(x_eval, cell_eval)
-
-        try:
-            data[:, 2] = u_n_eval.flatten()
-        except:
-            pass
-
-        # Write evaluation from each process into a single file
-        MPI.COMM_WORLD.Barrier()
-
-        for i in range(MPI.COMM_WORLD.size):
-            if MPI.COMM_WORLD.rank == i:
-                fname = f"/home/shared/data/pressure_field_{step_period}.txt"
-                f_data = open(fname, "a")
-                np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
-                f_data.close()
-    
-            MPI.COMM_WORLD.Barrier()
-
-        step_period += 1
-    # --------------------------------------------------------------
 
 copy(u_, u_n)
 copy(v_, v_n)
@@ -467,3 +447,32 @@ if MPI.COMM_WORLD.rank == 0:
 
 with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
     f.write(0.0)
+
+# ------------ #
+# Collect data #
+# ------------ #
+
+# Copy data to function
+u_n_.x.scatter_forward()
+
+# Evaluate function
+u_n_eval = u_n_.eval(x_eval, cell_eval)
+
+try:
+    data[:, 2] = u_n_eval.flatten()
+except:
+    pass
+
+# Write evaluation from each process into a single file
+MPI.COMM_WORLD.Barrier()
+
+for i in range(MPI.COMM_WORLD.size):
+    if MPI.COMM_WORLD.rank == i:
+        fname = f"/home/shared/pressure_field.txt"
+        f_data = open(fname, "a")
+        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
+        f_data.close()
+
+    MPI.COMM_WORLD.Barrier()
+
+# --------------------------------------------------------------

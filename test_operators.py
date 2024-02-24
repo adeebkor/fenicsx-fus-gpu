@@ -12,7 +12,8 @@ from mpi4py import MPI
 import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
-from dolfinx.mesh import create_box, locate_entities_boundary, CellType
+from dolfinx.la import InsertMode
+from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
 from ufl import inner, grad, ds, dx, TestFunction
 
 from precompute import (compute_scaled_jacobian_determinant,
@@ -44,7 +45,8 @@ Q = {
 N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, dtype=float_type)
+    (N, N, N), cell_type=CellType.hexahedron, ghost_mode=GhostMode.none,
+    dtype=float_type)
 
 # Mesh geometry data
 x_dofs = mesh.geometry.dofmap
@@ -93,11 +95,12 @@ dphi = gtable[1:, :, :, 0]
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
+cell_constants = np.ones(dofmap.shape[0], dtype=float_type)
+
 # Compute scaled geometrical factor (J^{-T}J_{-1})
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
-cell_constants = np.ones(dofmap.shape[0], dtype=float_type)
 
 # Compute geometric data of boundary facet entities
 boundary_facets = locate_entities_boundary(
@@ -156,15 +159,18 @@ v = TestFunction(V)
 
 b[:] = 0.0
 mass_operator(u, cell_constants, b, detJ, dofmap)
+b0.x.scatter_reverse(InsertMode.add)
 
 u0.x.array[:] = 1.0
 a0_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
 b0_dolfinx = assemble_vector(a0_dolfinx)
+b0_dolfinx.scatter_reverse(InsertMode.add)
 
 # Check the difference between the vectors
 mass_difference = np.linalg.norm(
     b - b0_dolfinx.array) / np.linalg.norm(b0_dolfinx.array)
-print(f"Euclidean difference (mass operator): {mass_difference}")
+print(f"Euclidean difference (mass operator): {mass_difference}",
+      flush=True)
 
 assert(mass_difference < tol)
 
@@ -189,15 +195,18 @@ u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
                * np.sin(4*np.pi*x[2]))
 b[:] = 0.0
 stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd, float_type)
+b0.x.scatter_reverse(InsertMode.add)
 
 a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
                   dtype=float_type)
 b1_dolfinx = assemble_vector(a1_dolfinx)
+b1_dolfinx.scatter_reverse(InsertMode.add)
 
 # Check the difference between the vectors
 stiffness_difference = np.linalg.norm(
     b - b1_dolfinx.array) / np.linalg.norm(b1_dolfinx.array)
-print(f"Euclidean difference (stiffness operator): {stiffness_difference}")
+print(f"Euclidean difference (stiffness operator): {stiffness_difference}",
+      flush=True)
 
 assert(stiffness_difference < tol)
 
@@ -208,14 +217,17 @@ assert(stiffness_difference < tol)
 b[:] = 0.0
 u[:] = 1.0
 mass_operator(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
+b0.x.scatter_reverse(InsertMode.add)
 
 a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 b3_dolfinx = assemble_vector(a3_dolfinx)
+b3_dolfinx.scatter_reverse(InsertMode.add)
 
 # Check the difference between the vectors
 bfacet_difference = np.linalg.norm(
     b - b3_dolfinx.array) / np.linalg.norm(b3_dolfinx.array)
-print(f"Euclidean difference (boundary operator): {bfacet_difference}")
+print(f"Euclidean difference (boundary operator): {bfacet_difference}",
+      flush=True)
 
 # Test the closeness between the vectors
 assert(bfacet_difference < tol)

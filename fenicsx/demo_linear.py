@@ -16,6 +16,7 @@ import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import assemble_vector, form, functionspace, Function
 from dolfinx.io import XDMFFile
+from dolfinx.mesh import GhostMode
 from ufl import dx, grad, inner, Measure, TestFunction
 
 # Source parameters
@@ -37,7 +38,7 @@ degree_of_basis = 4
 # Read mesh and mesh tags
 with XDMFFile(MPI.COMM_WORLD, "../mesh.xdmf", "r") as fmesh:
     mesh_name = "planar_3d_0"
-    mesh = fmesh.read_mesh(name=f"{mesh_name}")
+    mesh = fmesh.read_mesh(name=f"{mesh_name}", ghost_mode=GhostMode.none)
     tdim = mesh.topology.dim
     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
     mesh.topology.create_connectivity(tdim-1, tdim)
