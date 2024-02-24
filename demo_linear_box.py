@@ -97,31 +97,6 @@ number_of_step = (final_time - start_time) / time_step_size + 1
 if MPI.COMM_WORLD.rank == 0:
     print(f"Number of steps: {int(number_of_step)}", flush=True)
 
-# -----------------------------------------------------------------------------
-# Evaluation parameters
-npts_x = 100
-npts_y = 100
-
-x_p = np.linspace(0, domain_length, npts_x, dtype=float_type)
-y_p = np.linspace(0, domain_length, npts_y, dtype=float_type)
-
-X_p, Y_p = np.meshgrid(x_p, y_p)
-
-points = np.zeros((3, npts_x*npts_y), dtype=float_type)
-points[0] = X_p.flatten()
-points[1] = Y_p.flatten()
-
-x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
-
-data = np.zeros_like(x_eval, dtype=float_type)
-
-try:
-    data[:, 0] = x_eval[:, 0]
-    data[:, 1] = x_eval[:, 1]
-except:
-    pass
-# -----------------------------------------------------------------------------
-
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
 
@@ -447,32 +422,3 @@ if MPI.COMM_WORLD.rank == 0:
 
 with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
     f.write(0.0)
-
-# ------------ #
-# Collect data #
-# ------------ #
-
-# Copy data to function
-u_n_.x.scatter_forward()
-
-# Evaluate function
-u_n_eval = u_n_.eval(x_eval, cell_eval)
-
-try:
-    data[:, 2] = u_n_eval.flatten()
-except:
-    pass
-
-# Write evaluation from each process into a single file
-MPI.COMM_WORLD.Barrier()
-
-for i in range(MPI.COMM_WORLD.size):
-    if MPI.COMM_WORLD.rank == i:
-        fname = f"/home/shared/pressure_field.txt"
-        f_data = open(fname, "a")
-        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
-        f_data.close()
-
-    MPI.COMM_WORLD.Barrier()
-
-# --------------------------------------------------------------
