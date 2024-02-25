@@ -126,6 +126,9 @@ element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 V = functionspace(mesh, element)
 dofmap = V.dofmap.list[:, perm]
 
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Number of degrees-of-freedom: {V.dofmap.index_map.size_global}")
+
 # Define functions
 u0 = Function(V, dtype=float_type)
 u_n_ = Function(V, dtype=float_type)

@@ -149,6 +149,9 @@ cell_type = mesh.basix_cell()
 element = basix.ufl.element(family, cell_type, basis_degree, variant)
 V = functionspace(mesh, element)
 
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Number of degrees-of-freedom: {V.dofmap.index_map.size_global}")
+
 # Define functions
 v = TestFunction(V)
 u = Function(V)
