@@ -1,6 +1,6 @@
 #
 # Linear wave
-# - Homogenous media
+# - Benchmark 1 Source 2 from the benchmark paper.
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
@@ -15,11 +15,8 @@ import basix
 import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import functionspace, Function
-from dolfinx.io import XDMFFile, VTXWriter
+from dolfinx.io import XDMFFile
 from dolfinx.mesh import GhostMode
-
-from ufl import dx, grad, inner, Measure, TestFunction
-from dolfinx.fem import form, assemble_vector
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
@@ -86,8 +83,7 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-# final_time = domain_length / speed_of_sound + 8.0 / source_frequency
-final_time = 0.01 / speed_of_sound + 8.0 / source_frequency
+final_time = domain_length / speed_of_sound + 8.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
 if MPI.COMM_WORLD.rank == 0:
@@ -134,13 +130,22 @@ rho0_ = rho0.x.array
 family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 
-basix_element = basix.create_tp_element(
+basix_element_tp = basix.create_tp_element(
     family, cell_type, basis_degree, variant)
+perm = np.argsort(np.array(basix_element_tp.dof_ordering, dtype=np.int32))
+
+# Basix element
+basix_element = basix.create_element(
+    family, cell_type, basis_degree, variant
+)
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Define function space and functions
 V = functionspace(mesh, element)
-dofmap = V.dofmap.list
+dofmap = V.dofmap.list[:, perm]
+
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Number of degrees-of-freedom: {V.dofmap.index_map.size_global}")
 
 # Define functions
 u0 = Function(V, dtype=float_type)
@@ -195,7 +200,7 @@ boundary_data1 = facet_integration_domain(
 boundary_data2 = facet_integration_domain(
     boundary_facets2, mesh)  # cells with boundary facets (absorbing)
 local_facet_dof = np.array(
-    basix_element.entity_closure_dofs[2],
+    basix_element_tp.entity_closure_dofs[2],
     dtype=np.int32)  # local DOF on facets
 
 pts_f, wts_f = basix.quadrature.make_quadrature(
@@ -420,8 +425,7 @@ while t < tf:
     # Collect data #
     # ------------ #
 
-    # if (t > 0.12 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
-    if (t > 0.01 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
+    if (t > 0.12 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
         # Copy data to function
         copy(u_, u_n)
         u_n_.x.scatter_forward()
@@ -439,7 +443,7 @@ while t < tf:
 
         for i in range(MPI.COMM_WORLD.size):
             if MPI.COMM_WORLD.rank == i:
-                fname = f"/home/shared/data/pressure_field_{step_period}.txt"
+                fname = f"/home/mabm4/Projects/fenicsx-linear-wave/data/pressure_field_{step_period}.txt"
                 f_data = open(fname, "a")
                 np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
                 f_data.close()
@@ -460,10 +464,3 @@ elapsed = toc - tic
 if MPI.COMM_WORLD.rank == 0:
     print(f"Solve time: {elapsed}")
     print(f"Solve time per step: {elapsed/nstep}")
-
-# --------------------- #
-# Output final solution #
-# --------------------- #
-
-with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
-    f.write(0.0)
