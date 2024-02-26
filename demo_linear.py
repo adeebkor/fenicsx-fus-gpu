@@ -15,7 +15,7 @@ import basix
 import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import functionspace, Function
-from dolfinx.io import XDMFFile, VTXWriter
+from dolfinx.io import XDMFFile
 from dolfinx.mesh import GhostMode
 
 from precompute import (compute_scaled_jacobian_determinant,
@@ -83,8 +83,7 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-# final_time = domain_length / speed_of_sound + 8.0 / source_frequency
-final_time = 0.01 / speed_of_sound + 8.0 / source_frequency
+final_time = domain_length / speed_of_sound + 8.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
 if MPI.COMM_WORLD.rank == 0:
@@ -419,15 +418,14 @@ while t < tf:
     t += dt
     step += 1
 
-    if step % 1 == 0 and MPI.COMM_WORLD.rank == 0:
+    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
     # ------------ #
     # Collect data #
     # ------------ #
 
-    # if (t > 0.12 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
-    if (t > 0.01 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
+    if (t > 0.12 / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
         # Copy data to function
         copy(u_, u_n)
         u_n_.x.scatter_forward()
@@ -445,7 +443,7 @@ while t < tf:
 
         for i in range(MPI.COMM_WORLD.size):
             if MPI.COMM_WORLD.rank == i:
-                fname = f"/home/shared/data/pressure_field_{step_period}.txt"
+                fname = f"/home/mabm4/Projects/fenicsx-linear-wave/data/pressure_field_{step_period}.txt"
                 f_data = open(fname, "a")
                 np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
                 f_data.close()
@@ -466,10 +464,3 @@ elapsed = toc - tic
 if MPI.COMM_WORLD.rank == 0:
     print(f"Solve time: {elapsed}")
     print(f"Solve time per step: {elapsed/nstep}")
-
-# --------------------- #
-# Output final solution #
-# --------------------- #
-
-with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
-    f.write(0.0)
