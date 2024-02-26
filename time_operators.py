@@ -1,10 +1,11 @@
 #
-# .. _test_operators:
+# .. _test_speed:
 #
-# Test whether the operators are working correctly by comparing the output with
-# DOLFINx.
+# Test the speed of the operators
 # =============================================================================
 # Copyright (C) 2024 Adeeb Arif Kor
+
+from time import perf_counter_ns
 
 import numpy as np
 from mpi4py import MPI
@@ -22,7 +23,7 @@ from precompute import (compute_scaled_jacobian_determinant,
 from operators import (mass_operator, stiffness_operator)
 from utils import facet_integration_domain
 
-float_type = np.float32
+float_type = np.float64
 
 if isinstance(float_type, np.float64):
     tol = 1e-12
@@ -148,10 +149,6 @@ for i, (cell, local_facet) in enumerate(boundary_data):
 
 bfacet_constants = np.ones(bfacet_dofmap.shape[0], dtype=float_type)
 
-# DOLFINx assembler for comparison
-md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
-v = TestFunction(V)
-
 # ------------- #
 # Mass operator #
 # ------------- #
@@ -160,18 +157,21 @@ b[:] = 0.0
 mass_operator(u, cell_constants, b, detJ, dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
-u0.x.array[:] = 1.0
-a0_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
-b0_dolfinx = assemble_vector(a0_dolfinx)
-b0_dolfinx.scatter_reverse(InsertMode.add)
+# Timing mass operator function
+timing_mass_operator = np.empty(10)
+for i in range(timing_mass_operator.size):
+    b[:] = 0.0
+    tic = perf_counter_ns()
+    mass_operator(u, cell_constants, b, detJ, dofmap)
+    toc = perf_counter_ns()
+    timing_mass_operator[i] = toc - tic
 
-# Check the difference between the vectors
-mass_difference = np.linalg.norm(
-    b - b0_dolfinx.array) / np.linalg.norm(b0_dolfinx.array)
-print(f"Euclidean difference (mass operator): {mass_difference}",
-      flush=True)
+timing_mass_operator *= 1e-3
 
-assert(mass_difference < tol)
+print(
+    f"Elapsed time (mass operator): "
+    f"{timing_mass_operator.mean():.0f} ± "
+    f"{timing_mass_operator.std():.0f} μs")
 
 # ------------------ #
 # Stiffness operator #
@@ -196,18 +196,21 @@ b[:] = 0.0
 stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd, float_type)
 b0.x.scatter_reverse(InsertMode.add)
 
-a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
-                  dtype=float_type)
-b1_dolfinx = assemble_vector(a1_dolfinx)
-b1_dolfinx.scatter_reverse(InsertMode.add)
+# Timing stiffness operator function
+timing_stiffness_operator = np.zeros(10)
+for i in range(timing_stiffness_operator.size):
+    b[:] = 0.0
+    tic = perf_counter_ns()
+    stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd, float_type)
+    toc = perf_counter_ns()
+    timing_stiffness_operator[i] = toc - tic
 
-# Check the difference between the vectors
-stiffness_difference = np.linalg.norm(
-    b - b1_dolfinx.array) / np.linalg.norm(b1_dolfinx.array)
-print(f"Euclidean difference (stiffness operator): {stiffness_difference}",
-      flush=True)
+timing_stiffness_operator *= 1e-3
 
-assert(stiffness_difference < tol)
+print(
+    f"Elapsed time (stiffness operator): "
+    f"{timing_stiffness_operator.mean():.0f} ± "
+    f"{timing_stiffness_operator.std():.0f} μs")
 
 # ------------------ #
 # Boundary operators #
@@ -218,15 +221,18 @@ u[:] = 1.0
 mass_operator(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
-a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
-b3_dolfinx = assemble_vector(a3_dolfinx)
-b3_dolfinx.scatter_reverse(InsertMode.add)
+# Timing boundary operator function
+timing_boundary_operator = np.empty(10)
+for i in range(timing_boundary_operator.size):
+    b[:] = 0.0
+    tic = perf_counter_ns()
+    mass_operator(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
+    toc = perf_counter_ns()
+    timing_boundary_operator[i] = toc - tic
 
-# Check the difference between the vectors
-bfacet_difference = np.linalg.norm(
-    b - b3_dolfinx.array) / np.linalg.norm(b3_dolfinx.array)
-print(f"Euclidean difference (boundary operator): {bfacet_difference}",
-      flush=True)
+timing_boundary_operator *= 1e-3
 
-# Test the closeness between the vectors
-assert(bfacet_difference < tol)
+print(
+    f"Elapsed time (boundary facet operator): "
+    f"{timing_boundary_operator.mean():.0f} ± "
+    f"{timing_boundary_operator.std():.0f} μs")
