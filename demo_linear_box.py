@@ -218,6 +218,7 @@ for f in range(6):
 # Compute scaled Jacobian determinant (source facets)
 if MPI.COMM_WORLD.rank == 0:
     print("Computing scaled Jacobian determinant (source facets)", flush=True)
+
 detJ_f1 = np.zeros((boundary_data1.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f, float_type)
@@ -225,6 +226,7 @@ compute_boundary_facets_scaled_jacobian_determinant(
 # Compute scaled Jacobian determinant (absorbing facets)
 if MPI.COMM_WORLD.rank == 0:
     print("Computing scaled Jacobian determinant (absorbing facets)", flush=True)
+
 detJ_f2 = np.zeros((boundary_data2.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
     detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f, float_type)
