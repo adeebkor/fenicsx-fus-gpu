@@ -12,7 +12,7 @@ this will print out the timings of the CPU Numba operators.
 
 To run the C++ code, do:
 
-1. ffcx forms.py
+1. `ffcx forms.py`
 2. mkdir build
 3. cd build
 4. cmake ..
