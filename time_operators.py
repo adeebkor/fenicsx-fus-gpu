@@ -54,9 +54,9 @@ x_dofs = mesh.geometry.dofmap
 x_g = mesh.geometry.x
 cell_type = mesh.basix_cell()
 
-# Uncomment below if we would like to test unstructured mesh
-mesh.geometry.x[:, :] += np.random.uniform(
-    -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
+# # Uncomment below if we would like to test unstructured mesh
+# mesh.geometry.x[:, :] += np.random.uniform(
+#     -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
 
 # Tensor product element
 family = basix.ElementFamily.P
