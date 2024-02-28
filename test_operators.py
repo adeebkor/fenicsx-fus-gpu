@@ -22,7 +22,7 @@ from precompute import (compute_scaled_jacobian_determinant,
 from operators import (mass_operator, stiffness_operator)
 from utils import facet_integration_domain
 
-float_type = np.float32
+float_type = np.float64
 
 if isinstance(float_type, np.float64):
     tol = 1e-12
