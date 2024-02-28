@@ -13,16 +13,18 @@ this will print out the timings of the CPU Numba operators.
 To run the C++ code, do:
 
 1. `ffcx forms.py`
-2. mkdir build
-3. cd build
-4. cmake ..
-5. make
-6. ./time_operators
+2. `mkdir build`
+3. `cd build`
+4. `cmake ..`
+5. `make`
+6. `./time_operators`
 
 this will print out the timings of the C++ operators.
 
 ## Dependencies
 
-* FEniCSx
-* Numpy
-* Numba
+* [FEniCSx](https://github.com/FEniCS/dolfinx)
+* [Numpy](https://github.com/numpy/numpy)
+* [Numba](https://github.com/numba/numba)
+
+  If we use the docker image of FEniCSx, the Numpy and Numba package is already included.
