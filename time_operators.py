@@ -43,6 +43,10 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
+nd = P + 1
+Nd = nd * nd * nd
+Nf = nd * nd
+
 N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
@@ -154,7 +158,8 @@ bfacet_constants = np.ones(bfacet_dofmap.shape[0], dtype=float_type)
 # ------------- #
 
 b[:] = 0.0
-mass_operator(u, cell_constants, b, detJ, dofmap)
+mass_operator_cell = mass_operator(Nd, float_type)
+mass_operator_cell(u, cell_constants, b, detJ, dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
 # Timing mass operator function
@@ -162,7 +167,7 @@ timing_mass_operator = np.empty(10)
 for i in range(timing_mass_operator.size):
     b[:] = 0.0
     tic = perf_counter_ns()
-    mass_operator(u, cell_constants, b, detJ, dofmap)
+    mass_operator_cell(u, cell_constants, b, detJ, dofmap)
     toc = perf_counter_ns()
     timing_mass_operator[i] = toc - tic
 
@@ -193,7 +198,8 @@ dphi_1D = dphi_1D.flatten()
 u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
                * np.sin(4*np.pi*x[2]))
 b[:] = 0.0
-stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd, float_type)
+stiff_operator_cell = stiffness_operator(P, dphi_1D, float_type)
+stiff_operator_cell(u, cell_constants, b, G, dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
 # Timing stiffness operator function
@@ -201,7 +207,7 @@ timing_stiffness_operator = np.zeros(10)
 for i in range(timing_stiffness_operator.size):
     b[:] = 0.0
     tic = perf_counter_ns()
-    stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd, float_type)
+    stiff_operator_cell(u, cell_constants, b, G, dofmap)
     toc = perf_counter_ns()
     timing_stiffness_operator[i] = toc - tic
 
@@ -218,7 +224,8 @@ print(
 
 b[:] = 0.0
 u[:] = 1.0
-mass_operator(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
+mass_operator_bfacet = mass_operator(Nf, float_type)
+mass_operator_bfacet(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
 # Timing boundary operator function
@@ -226,7 +233,7 @@ timing_boundary_operator = np.empty(10)
 for i in range(timing_boundary_operator.size):
     b[:] = 0.0
     tic = perf_counter_ns()
-    mass_operator(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
+    mass_operator_bfacet(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
     toc = perf_counter_ns()
     timing_boundary_operator[i] = toc - tic
 
