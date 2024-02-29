@@ -166,12 +166,12 @@ for i in range(timing_mass_operator.size):
     toc = perf_counter_ns()
     timing_mass_operator[i] = toc - tic
 
-timing_mass_operator *= 1e-3
+timing_mass_operator *= 1e-9
 
 print(
     f"Elapsed time (mass operator): "
-    f"{timing_mass_operator.mean():.0f} ± "
-    f"{timing_mass_operator.std():.0f} μs")
+    f"{timing_mass_operator.mean():.7f} ± "
+    f"{timing_mass_operator.std():.7f} s")
 
 # ------------------ #
 # Stiffness operator #
@@ -205,12 +205,12 @@ for i in range(timing_stiffness_operator.size):
     toc = perf_counter_ns()
     timing_stiffness_operator[i] = toc - tic
 
-timing_stiffness_operator *= 1e-3
+timing_stiffness_operator *= 1e-9
 
 print(
     f"Elapsed time (stiffness operator): "
-    f"{timing_stiffness_operator.mean():.0f} ± "
-    f"{timing_stiffness_operator.std():.0f} μs")
+    f"{timing_stiffness_operator.mean():.7f} ± "
+    f"{timing_stiffness_operator.std():.7f} s")
 
 # ------------------ #
 # Boundary operators #
@@ -230,9 +230,9 @@ for i in range(timing_boundary_operator.size):
     toc = perf_counter_ns()
     timing_boundary_operator[i] = toc - tic
 
-timing_boundary_operator *= 1e-3
+timing_boundary_operator *= 1e-9
 
 print(
     f"Elapsed time (boundary facet operator): "
-    f"{timing_boundary_operator.mean():.0f} ± "
-    f"{timing_boundary_operator.std():.0f} μs")
+    f"{timing_boundary_operator.mean():.7f} ± "
+    f"{timing_boundary_operator.std():.7f} s")
