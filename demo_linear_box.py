@@ -16,7 +16,7 @@ import basix
 import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import functionspace, Function
-from dolfinx.io import XDMFFile, VTXWriter
+from dolfinx.io import VTXWriter
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
 
 from precompute import (compute_scaled_jacobian_determinant,
@@ -24,7 +24,7 @@ from precompute import (compute_scaled_jacobian_determinant,
                         compute_boundary_facets_scaled_jacobian_determinant)
 from operators import (mass_operator, stiffness_operator, axpy, copy, 
                        pointwise_divide)
-from utils import facet_integration_domain, compute_eval_params
+from utils import facet_integration_domain
 
 float_type = np.float64
 
@@ -54,6 +54,10 @@ quadrature_degree = {
     9: 16,
     10: 18,
 }
+
+nd = basis_degree + 1
+Nf = nd * nd
+Nd = nd * nd * nd
 
 # Mesh parameters
 lmbda = speed_of_sound / source_frequency
@@ -272,6 +276,14 @@ dphi_1D = table_1D[1, :, :, 0]
 nd = dphi_1D.shape[1]
 dphi_1D = dphi_1D.flatten()
 
+# ---------------- #
+# Define operators #
+# ---------------- #
+
+mass_operator_cell = mass_operator(Nd, float_type)
+stiff_operator_cell = stiffness_operator(basis_degree, dphi_1D, float_type)
+mass_operator_bfacet = mass_operator(Nf, float_type)
+
 # ------------ #
 # Assemble LHS #
 # ------------ #
@@ -279,7 +291,7 @@ dphi_1D = dphi_1D.flatten()
 u[:] = 1.0
 
 m[:] = 0.0
-mass_operator(u, cell_coeff1, m, detJ, dofmap)
+mass_operator_cell(u, cell_coeff1, m, detJ, dofmap)
 m_.scatter_reverse(la.InsertMode.add)
 
 # Set initial values for un and vn
@@ -329,9 +341,9 @@ def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
 
     # Assemble RHS
     b[:] = 0.0
-    stiffness_operator(u_n, cell_coeff2, b, G, dofmap, dphi_1D, nd, float_type)
-    mass_operator(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
-    mass_operator(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
+    stiff_operator_cell(u_n, cell_coeff2, b, G, dofmap)
+    mass_operator_bfacet(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
+    mass_operator_bfacet(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
     b_.scatter_reverse(la.InsertMode.add)
 
     # Solve

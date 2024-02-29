@@ -42,6 +42,10 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
+nd = P + 1
+Nd = nd * nd * nd
+Nf = nd * nd
+
 N = 16
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
@@ -157,7 +161,8 @@ v = TestFunction(V)
 # ------------- #
 
 b[:] = 0.0
-mass_operator(u, cell_constants, b, detJ, dofmap)
+mass_operator_cell = mass_operator(Nd, float_type)
+mass_operator_cell(u, cell_constants, b, detJ, dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
 u0.x.array[:] = 1.0
@@ -193,7 +198,8 @@ dphi_1D = dphi_1D.flatten()
 u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
                * np.sin(4*np.pi*x[2]))
 b[:] = 0.0
-stiffness_operator(u, cell_constants, b, G, dofmap, dphi_1D, nd, float_type)
+stiff_operator_cell = stiffness_operator(P, dphi_1D, float_type)
+stiff_operator_cell(u, cell_constants, b, G, dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
 a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
@@ -215,7 +221,8 @@ assert(stiffness_difference < tol)
 
 b[:] = 0.0
 u[:] = 1.0
-mass_operator(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
+mass_operator_bfacet = mass_operator(Nf, float_type)
+mass_operator_bfacet(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
 b0.x.scatter_reverse(InsertMode.add)
 
 a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
