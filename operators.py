@@ -15,7 +15,16 @@ import numba
 
 from sum_factorisation import contract, transpose
 
-def mass_operator(N, float_type):
+def mass_operator(N: int, float_type: np.dtype[np.floating]):
+    """
+    Outer functions to defined the compile-time constants for the mass 
+    operator.
+
+    Parameters
+    ----------
+    N : number of degrees-of-freedom on the entity
+    float_type: floating-point type
+    """
 
     @numba.njit(fastmath=True)
     def operator(
@@ -60,6 +69,16 @@ def mass_operator(N, float_type):
 
 
 def stiffness_operator(P, dphi, float_type):
+    """
+    Outer functions to define compile-time constants for the stiffness 
+    operator.
+
+    Parameters
+    ----------
+    P : basis function polynomial degree
+    dphi : derivatives of the 1D basis functions
+    float_type : floating-point type
+    """
 
     n = P + 1
     N = n * n * n
@@ -87,7 +106,6 @@ def stiffness_operator(P, dphi, float_type):
         fw0 : array
         fw1 : array
         fw2 : array
-        nq : number of quadrature points in 1D
         """
 
         for q in range(N):
@@ -119,8 +137,6 @@ def stiffness_operator(P, dphi, float_type):
         y : output vector
         G : geometric transformation data
         dofmap : degrees-of-freedom map
-        dphi : derivatives of the 1D basis functions
-        nd : number of degrees-of-freedom in 1D
         """
 
         num_cell = cell_constants.size
@@ -157,25 +173,18 @@ def stiffness_operator(P, dphi, float_type):
                 x_[i] = x[dofmap[cell][i]]
 
             # Apply contraction in the x-direction
-            # contract(dphi, x_, fw0, nd, nd, nd, nd, True)  # [q1, i1] x [i1, i2, i3] -> [q1, i2, i3] # noqa: E501
-            contract_pre(dphi, x_, fw0)
+            contract_pre(dphi, x_, fw0)  # [q1, i1] x [i1, i2, i3] -> [q1, i2, i3] # noqa: E501
 
             # Apply contraction in the y-direction
-            # transpose(x_, T1, nd, nd, nd, nd, nd*nd, 1)  # [i1, i2, i3] -> [i2, i1, i3] # noqa: E501
-            # contract(dphi, T1, T2, nd, nd, nd, nd, True)  # [q2, i2] x [i2, i1, i3] -> [q2, i1, i3] # noqa: E501
-            # transpose(T2, fw1, nd, nd, nd, nd, nd*nd, 1)  # [q2, i1, i3] -> [i1, q2, i3] # noqa: E501
-            transpose_y(x_, T1)
-            contract_pre(dphi, T1, T2)
-            transpose_y(T2, fw1)
+            transpose_y(x_, T1)  # [i1, i2, i3] -> [i2, i1, i3] # noqa: E501
+            contract_pre(dphi, T1, T2)  # [q2, i2] x [i2, i1, i3] -> [q2, i1, i3] # noqa: E501
+            transpose_y(T2, fw1)  # [q2, i1, i3] -> [i1, q2, i3] # noqa: E501
 
 
             # Apply contraction in the z-direction
-            # transpose(x_, T3, nd, nd, nd, 1, nd, nd*nd)  # [i1, i2, i3] -> [i3, i2, i1] # noqa: E501
-            # contract(dphi, T3, T4, nd, nd, nd, nd, True)  # [q3, i3] x [i3, i2, i1] -> [q3, i2, i1] # noqa: E501
-            # transpose(T4, fw2, nd, nd, nd, 1, nd, nd*nd)  # [q3, i2, i1] -> [i1, i2, q3] # noqa: E501
-            transpose_z(x_, T3)
-            contract_pre(dphi, T3, T4)
-            transpose_z(T4, fw2)
+            transpose_z(x_, T3)  # [i1, i2, i3] -> [i3, i2, i1] # noqa: E501
+            contract_pre(dphi, T3, T4)  # [q3, i3] x [i3, i2, i1] -> [q3, i2, i1] # noqa: E501
+            transpose_z(T4, fw2)  # [q3, i2, i1] -> [i1, i2, q3] # noqa: E501
 
             # Apply transform
             stiffness_transform(G[cell], cell_constants[cell], fw0, fw1, fw2)
@@ -190,24 +199,17 @@ def stiffness_operator(P, dphi, float_type):
             y2_[:] = 0.0
 
             # Apply contraction in the x-direction
-            # contract(dphi, fw0, y0_, nd, nd, nd, nd, False)  # [j1, q1] x [q1, j2, j3] -> [j1, j2, j3] # noqa: E501
-            contract_post(dphi, fw0, y0_)
+            contract_post(dphi, fw0, y0_)  # [j1, q1] x [q1, j2, j3] -> [j1, j2, j3] # noqa: E501
 
             # Apply contraction in the y-direction
-            # transpose(fw1, T1, nd, nd, nd, nd, nd*nd, 1)  # [j1, q2, j3] -> [q2, j1, j3] # noqa: E501
-            # contract(dphi, T1, T2, nd, nd, nd, nd, False)  # [j2, q2] x [q2, j1, j3] -> [j2, j1, j3] # noqa: E501
-            # transpose(T2, y1_, nd, nd, nd, nd, nd*nd, 1)  # [j2, j1, j3] -> [j1, j2, j3] # noqa: E501
-            transpose_y(fw1, T1)
-            contract_post(dphi, T1, T2)
-            transpose_y(T2, y1_)
+            transpose_y(fw1, T1)  # [j1, q2, j3] -> [q2, j1, j3] # noqa: E501
+            contract_post(dphi, T1, T2)  # [j2, q2] x [q2, j1, j3] -> [j2, j1, j3] # noqa: E501
+            transpose_y(T2, y1_)  # [j2, j1, j3] -> [j1, j2, j3] # noqa: E501
 
             # Apply contraction in the z-direction
-            # transpose(fw2, T3, nd, nd, nd, 1, nd, nd*nd)  # [j1, j2, q3] -> [q3, j2, j1] # noqa: E501
-            # contract(dphi, T3, T4, nd, nd, nd, nd, False)  # [j3, q3] x [q3, j2, j1] -> [j3, j2, j1] # noqa: E501
-            # transpose(T4, y2_, nd, nd, nd, 1, nd, nd*nd)  # [j3, j2, j1] -> [j1, j2, j3] # noqa: E501
-            transpose_z(fw2, T3)
-            contract_post(dphi, T3, T4)
-            transpose_z(T4, y2_)
+            transpose_z(fw2, T3)  # [j1, j2, q3] -> [q3, j2, j1] # noqa: E501
+            contract_post(dphi, T3, T4)  # [j3, q3] x [q3, j2, j1] -> [j3, j2, j1] # noqa: E501
+            transpose_z(T4, y2_)  # [j3, j2, j1] -> [j1, j2, j3] # noqa: E501
 
             # Add contributions
             for i in range(N):

@@ -15,6 +15,8 @@ import numba
 
 def transpose(Na: int, Nb: int, Nc: int, offa: int, offb: int, offc: int):
     """
+    Outer function to define compile-time constants of the transpose operator
+
     Parameters
     ----------
     Na : size of 1st dimension of A
@@ -46,6 +48,8 @@ def transpose(Na: int, Nb: int, Nc: int, offa: int, offb: int, offc: int):
 
 def contract(Nk: int, Na: int, Nb: int, Nc: int, bool: bool):
     """
+    Outer function to define compile-time constants of the contraction operator
+
     Parameters
     ----------
     Nk : size of 1st dimension of input tensor A
