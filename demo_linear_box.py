@@ -368,7 +368,7 @@ def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
 
     # Solve
     with common.Timer("~ F1 (solve)"):
-        pointwise_divide(b, m, result)
+        result[:] = b[:] / m[:]
 
 
 # --------------- #
