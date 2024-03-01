@@ -16,10 +16,9 @@ import basix
 import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import assemble_scalar, assemble_vector, form, functionspace, Function
-from dolfinx.io import XDMFFile, VTXWriter
+from dolfinx.io import VTXWriter
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode, meshtags
 from ufl import dx, grad, inner, Measure, TestFunction
-from utils import compute_eval_params
 
 float_type = np.float64
 
@@ -86,31 +85,6 @@ number_of_step = (final_time - start_time) / time_step_size + 1
 
 if MPI.COMM_WORLD.rank == 0:
     print(f"Number of steps: {int(number_of_step)}", flush=True)
-
-# -----------------------------------------------------------------------------
-# Evaluation parameters
-npts_x = 100
-npts_y = 100
-
-x_p = np.linspace(0, domain_length, npts_x, dtype=float_type)
-y_p = np.linspace(0, domain_length, npts_y, dtype=float_type)
-
-X_p, Y_p = np.meshgrid(x_p, y_p)
-
-points = np.zeros((3, npts_x*npts_y), dtype=float_type)
-points[0] = X_p.flatten()
-points[1] = Y_p.flatten()
-
-x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
-
-data = np.zeros_like(x_eval, dtype=float_type)
-
-try:
-    data[:, 0] = x_eval[:, 0]
-    data[:, 1] = x_eval[:, 1]
-except:
-    pass
-# -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
@@ -187,26 +161,7 @@ v_n.x.array[:] = 0.0
 # RK slope functions #
 # ------------------ #
 
-
-def f0(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
-    """
-    Evaluate du/dt = f0(t, u, v)
-
-    Parameters
-    ----------
-    t : Current time, i.e. tn
-    u : Current u, i.e. un
-    v : Current v, i.e. vn
-
-    Return
-    ------
-    result : Result, i.e. k^{u}
-    """
-
-    result.array[:] = v.array[:]
-
-
-def f1(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
+def f(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     """
     Evaluate dv/dt = f1(t, u, v)
 
@@ -220,6 +175,7 @@ def f1(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     ------
     result : Result, i.e. k^{v}
     """
+
     T = 1 / source_frequency
     alpha = 4
 
@@ -299,8 +255,8 @@ while t < tf:
         tn = t + c_runge[i] * dt
 
         # Evaluate slopes
-        f0(tn, un, vn, result=ku)
-        f1(tn, un, vn, result=kv)
+        ku.array[:] = vn.array[:]
+        f(tn, un, vn, result=kv)
 
         # Update solution
         u_.array[:] += b_runge[i] * dt * ku.array[:]
@@ -313,37 +269,17 @@ while t < tf:
     if step % 10 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_.array[0]}", flush=True)
 
-    u_.scatter_forward()
-    v_.scatter_forward()
-    u_n.x.array[:] = u_.array[:]
-    v_n.x.array[:] = v_.array[:]
+u_.scatter_forward()
+v_.scatter_forward()
+u_n.x.array[:] = u_.array[:]
+v_n.x.array[:] = v_.array[:]
+
 toc = time.time()
 elapsed = toc - tic
 
-print(f"Solve time: {elapsed}")
-print(f"Solve time per step: {elapsed/nstep}")
-
-# Compute norms
-
-norm_0 = mesh.comm.allreduce(assemble_scalar(form(inner(u_n, u_n)*dx)), op=MPI.SUM)
-
-# Basix order element
-family_ = basix.ElementFamily.P
-variant_ = basix.LagrangeVariant.gll_warped
-cell_type_ = mesh.basix_cell()
-
-basix_element_ = basix.create_element(family_, cell_type_, basis_degree, variant_)
-element_ = basix.ufl._BasixElement(basix_element_)  # basix ufl element
-
-# Create function space
-V_ = functionspace(mesh, element_)
-
-u_final = Function(V_, dtype=float_type)
-u_final.interpolate(u_n)
-
-norm_1 = mesh.comm.allreduce(assemble_scalar(form(inner(u_final, u_final)*dx)), op=MPI.SUM)
-
-print(norm_0, norm_1)
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Solve time: {elapsed}")
+    print(f"Solve time per step: {elapsed/nstep}")
 
 # --------------------- #
 # Output final solution #
@@ -351,33 +287,3 @@ print(norm_0, norm_1)
 
 with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n, "bp4") as f:
     f.write(0.0)
-
-# ------------ #
-# Collect data #
-# ------------ #
-
-# Copy data to function
-u_final.x.scatter_forward()
-
-# Evaluate function
-u_n_eval = u_final.eval(x_eval, cell_eval)
-
-try:
-    data[:, 2] = u_n_eval.flatten()
-except:
-    pass
-
-# Write evaluation from each process into a single file
-MPI.COMM_WORLD.Barrier()
-
-for i in range(MPI.COMM_WORLD.size):
-    if MPI.COMM_WORLD.rank == i:
-        fname = f"/home/shared/fenicsx/pressure_field.txt"
-        f_data = open(fname, "a")
-        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
-        f_data.close()
-
-    MPI.COMM_WORLD.Barrier()
-
-# --------------------------------------------------------------
-
