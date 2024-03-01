@@ -308,8 +308,6 @@ with common.Timer("~ assemble lhs"):
 u_n[:] = 0.0
 v_n[:] = 0.0
 
-size_local = m_.index_map.size_local
-
 # ------------------ #
 # RK slope functions #
 # ------------------ #
@@ -449,10 +447,10 @@ while t < tf:
     if step % 10 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
-copy(u_, u_n)
-copy(v_, v_n)
 u_n_.x.scatter_forward()
 v_n_.x.scatter_forward()
+u_n[:] = u_[:]
+v_n[:] = v_[:]
 
 toc = time.time()
 elapsed = toc - tic
