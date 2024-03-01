@@ -14,7 +14,8 @@ from mpi4py import MPI
 
 import basix
 import basix.ufl
-from dolfinx import cpp, la
+from dolfinx import common, cpp, la, list_timings
+from dolfinx.common import Reduction, TimingType
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import VTXWriter
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
@@ -284,15 +285,24 @@ mass_operator_cell = mass_operator(Nd, float_type)
 stiff_operator_cell = stiffness_operator(basis_degree, dphi_1D, float_type)
 mass_operator_bfacet = mass_operator(Nf, float_type)
 
+# Run once to jit compile operators
+mass_operator_cell(u, cell_coeff1, m, detJ, dofmap)
+stiff_operator_cell(u_n, cell_coeff2, b, G, dofmap)
+mass_operator_bfacet(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
+
 # ------------ #
 # Assemble LHS #
 # ------------ #
 
 u[:] = 1.0
 
-m[:] = 0.0
-mass_operator_cell(u, cell_coeff1, m, detJ, dofmap)
-m_.scatter_reverse(la.InsertMode.add)
+with common.Timer("~ assemble lhs"):
+    m[:] = 0.0
+
+    with common.Timer("~ m0 assembly"):
+        mass_operator_cell(u, cell_coeff1, m, detJ, dofmap)
+
+    m_.scatter_reverse(la.InsertMode.add)
 
 # Set initial values for un and vn
 u_n[:] = 0.0
@@ -330,24 +340,35 @@ def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
         window = 1.0
 
     # Update boundary condition
-    g[:] = window * source_amplitude * angular_frequency / \
-        speed_of_sound * np.cos(angular_frequency * t)
+    with common.Timer("~ F1 (update source)"):
+        g[:] = window * source_amplitude * angular_frequency / \
+            speed_of_sound * np.cos(angular_frequency * t)
 
     # Update fields
-    u_n[:] = u[:]
-    u_n_.x.scatter_forward()
-    v_n[:] = v[:]
-    v_n_.x.scatter_forward()
+    with common.Timer("~ F1 (update field)"):
+        u_n[:] = u[:]
+        u_n_.x.scatter_forward()
+        v_n[:] = v[:]
+        v_n_.x.scatter_forward()
 
     # Assemble RHS
-    b[:] = 0.0
-    stiff_operator_cell(u_n, cell_coeff2, b, G, dofmap)
-    mass_operator_bfacet(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
-    mass_operator_bfacet(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
-    b_.scatter_reverse(la.InsertMode.add)
+    with common.Timer("~ F1 (assemble rhs)"):
+        b[:] = 0.0
+
+        with common.Timer("~ b0 assembly"):
+            stiff_operator_cell(u_n, cell_coeff2, b, G, dofmap)
+
+        with common.Timer("~ b1 assembly"):
+            mass_operator_bfacet(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
+
+        with common.Timer("~ b2 assembly"):
+            mass_operator_bfacet(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
+        
+        b_.scatter_reverse(la.InsertMode.add)
 
     # Solve
-    pointwise_divide(b, m, result)
+    with common.Timer("~ F1 (solve)"):
+        pointwise_divide(b, m, result)
 
 
 # --------------- #
@@ -393,26 +414,33 @@ while t < tf:
     dt = min(dt, tf-t)
 
     # Store solution at start of time step
-    copy(u_, u0)
-    copy(v_, v0)
+    with common.Timer("~ RK (copy ext)"):
+        u0[:] = u_[:]
+        v0[:] = v_[:]
 
     # Runge-Kutta step
     for i in range(n_rk):
-        copy(u0, un)
-        copy(v0, vn)
+        with common.Timer("~ RK (copy int)"):
+            un[:] = u0[:]
+            vn[:] = v0[:]
 
-        axpy(a_runge[i]*dt, ku, un, size_local)
-        axpy(a_runge[i]*dt, kv, vn, size_local)
+        with common.Timer("~ RK (axpy a)"):
+            un += a_runge[i]*dt*ku
+            vn += a_runge[i]*dt*kv
 
         tn = t + c_runge[i] * dt
 
         # Evaluate slopes
-        copy(vn, ku)
-        f(tn, un, vn, kv)
+        with common.Timer("~ RK (f0)"):
+            ku[:] = vn[:]
+
+        with common.Timer("~ RK (f1)"):
+            f(tn, un, vn, kv)
 
         # Update solution
-        axpy(b_runge[i]*dt, ku, u_, size_local)
-        axpy(b_runge[i]*dt, kv, v_, size_local)
+        with common.Timer("~ RK (axpy b)"):
+            u_ += b_runge[i]*dt*ku
+            v_ += b_runge[i]*dt*kv
     
     # Update time
     t += dt
@@ -439,3 +467,9 @@ if MPI.COMM_WORLD.rank == 0:
 
 with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
     f.write(0.0)
+
+# ------------ #
+# List timings #
+# ------------ #
+    
+list_timings(MPI.COMM_WORLD, [TimingType.wall], Reduction.average)
