@@ -74,6 +74,9 @@ element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 V = functionspace(mesh, element)
 dofmap = V.dofmap.list
 
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Number of degrees-of-freedom: {V.dofmap.index_map.size_global}")
+
 # Create function
 u0 = Function(V, dtype=float_type)  # Input function
 u = u0.x.array
