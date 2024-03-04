@@ -15,7 +15,7 @@ import numba.cuda as cuda
 import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
-from dolfinx.mesh import create_box, CellType
+from dolfinx.mesh import create_box, CellType, GhostMode
 from ufl import inner, grad, dx, TestFunction
 
 from precompute import compute_scaled_geometrical_factor
@@ -51,7 +51,9 @@ Q = {
 N = 16
 mesh = create_box(
   MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-  (N, N, N), cell_type=CellType.hexahedron, dtype=float_type
+  (N, N, N), cell_type=CellType.hexahedron, 
+  ghost_mode=GhostMode.none,
+  dtype=float_type
 )
 
 # Mesh geometry data
