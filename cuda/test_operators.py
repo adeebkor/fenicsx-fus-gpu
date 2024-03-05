@@ -2,12 +2,15 @@
 # .. _test_operators:
 #
 # Test whether the operators are working correctly by comparing the output with
-# DOLFINx.
+# DOLFINx
 # =============================================================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
 import numpy as np
 from mpi4py import MPI
+
+import numba
+import numba.cuda as cuda
 
 import basix
 import basix.ufl
@@ -21,6 +24,12 @@ from precompute import (compute_scaled_jacobian_determinant,
                         compute_boundary_facets_scaled_jacobian_determinant)
 from operators import mass_operator, stiffness_operator
 from utils import facet_integration_domain
+
+# Check if CUDA is available
+if cuda.is_available():
+    print("CUDA is available")
+
+cuda.detect()
 
 float_type = np.float64
 
@@ -42,15 +51,13 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-nd = P + 1
-Nd = nd * nd * nd
-Nf = nd * nd
-
-N = 16
+N = 8
 mesh = create_box(
-    MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, ghost_mode=GhostMode.none,
-    dtype=float_type)
+  MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
+  (N, N, N), cell_type=CellType.hexahedron, 
+  ghost_mode=GhostMode.none,
+  dtype=float_type
+)
 
 # Mesh geometry data
 x_dofs = mesh.geometry.dofmap
@@ -59,7 +66,7 @@ cell_type = mesh.basix_cell()
 
 # Uncomment below if we would like to test unstructured mesh
 mesh.geometry.x[:, :] += np.random.uniform(
-    -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
+  -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
 
 # Tensor product element
 family = basix.ElementFamily.P
@@ -141,7 +148,7 @@ for f in range(6):
 # Compute scaled Jacobian determinant (boundary facets)
 detJ_f = np.zeros((boundary_data.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
-    detJ_f, (x_dofs, x_g), boundary_data, dphi_f, wts_f, float_type)
+    detJ_f, (x_dofs, x_g), boundary_data, dphi_f, wts_f)
 
 # Create boundary facets dofmap
 bfacet_dofmap = np.zeros(
@@ -161,11 +168,25 @@ v = TestFunction(V)
 # ------------- #
 
 b[:] = 0.0
-mass_operator_cell = mass_operator(Nd, float_type)
-mass_operator_cell(u, cell_constants, b, detJ, dofmap)
-b0.x.scatter_reverse(InsertMode.add)
-
 u0.x.array[:] = 1.0
+
+# Set the number of threads in a block
+threadsperblock_c = 128
+num_blocks_c = (dofmap.size + (threadsperblock_c - 1)) // threadsperblock_c
+
+# Allocate memory on the device
+detJ_d = cuda.to_device(detJ)
+cell_constants_d = cuda.to_device(cell_constants)
+dofmap_d = cuda.to_device(dofmap)
+u_d = cuda.to_device(u)
+b_d = cuda.to_device(b)
+
+# Call the mass operator function
+mass_operator[num_blocks_c, threadsperblock_c](u_d, cell_constants_d, b_d, detJ_d, dofmap_d)
+
+# Copy the result back to the host
+b_d.copy_to_host(b)
+
 a0_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
 b0_dolfinx = assemble_vector(a0_dolfinx)
 b0_dolfinx.scatter_reverse(InsertMode.add)
@@ -184,8 +205,8 @@ assert(mass_difference < tol)
 
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
-    family, basix.CellType.interval, P,
-    variant, dtype=float_type)
+  basix.ElementFamily.P, basix.CellType.interval, P,
+  basix.LagrangeVariant.gll_warped, dtype=float_type)
 pts_1D, wts_1D = basix.quadrature.make_quadrature(
     basix.CellType.interval, Q[P], basix.QuadratureType.gll)
 pts_1D, wts_1D = pts_1D.astype(float_type), wts_1D.astype(float_type)
@@ -193,14 +214,27 @@ pts_1D, wts_1D = pts_1D.astype(float_type), wts_1D.astype(float_type)
 table_1D = element_1D.tabulate(1, pts_1D)
 dphi_1D = table_1D[1, :, :, 0]
 nd = dphi_1D.shape[1]
-dphi_1D = dphi_1D.flatten()
 
+# Update input data
 u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
                * np.sin(4*np.pi*x[2]))
 b[:] = 0.0
-stiff_operator_cell = stiffness_operator(P, dphi_1D, float_type)
-stiff_operator_cell(u, cell_constants, b, G, dofmap)
-b0.x.scatter_reverse(InsertMode.add)
+
+# Set the number of threads in a block
+threadsperblock = (nd, nd, nd)
+num_blocks = num_cells
+
+# Allocate memory on the device
+G_d = cuda.to_device(G)
+u_d = cuda.to_device(u)
+b_d = cuda.to_device(b)
+dphi_1D_d = cuda.to_device(dphi_1D)
+
+# Call the stiffness operator function
+stiffness_operator[num_blocks, threadsperblock](u_d, cell_constants_d, b_d, G_d, dofmap_d, dphi_1D_d)
+
+# Copy the result back to the host
+b_d.copy_to_host(b)
 
 a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
                   dtype=float_type)
@@ -221,9 +255,23 @@ assert(stiffness_difference < tol)
 
 b[:] = 0.0
 u[:] = 1.0
-mass_operator_bfacet = mass_operator(Nf, float_type)
-mass_operator_bfacet(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
-b0.x.scatter_reverse(InsertMode.add)
+
+# Set the number of threads in a block
+threadsperblock_bfacet = 128
+num_blocks_bfacet = (bfacet_dofmap.size + (threadsperblock_bfacet - 1)) // threadsperblock_bfacet
+
+# Allocate memory on the device
+detJ_f_d = cuda.to_device(detJ_f)
+bfacet_constants_d = cuda.to_device(bfacet_constants)
+bfacet_dofmap_d = cuda.to_device(bfacet_dofmap)
+u_d = cuda.to_device(u)
+b_d = cuda.to_device(b)
+
+# Call the mass operator function
+mass_operator[num_blocks_bfacet, threadsperblock_bfacet](u_d, bfacet_constants_d, b_d, detJ_f_d, bfacet_dofmap_d)
+
+# Copy the result back to the host
+b_d.copy_to_host(b)
 
 a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 b3_dolfinx = assemble_vector(a3_dolfinx)
