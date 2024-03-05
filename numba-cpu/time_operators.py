@@ -1,5 +1,5 @@
 #
-# .. _test_speed:
+# .. _time_operators:
 #
 # Test the speed of the operators
 # =============================================================================
@@ -12,15 +12,14 @@ from mpi4py import MPI
 
 import basix
 import basix.ufl
-from dolfinx.fem import assemble_vector, functionspace, form, Function
+from dolfinx.fem import functionspace, Function
 from dolfinx.la import InsertMode
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
-from ufl import inner, grad, ds, dx, TestFunction
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
                         compute_boundary_facets_scaled_jacobian_determinant)
-from operators import (mass_operator, stiffness_operator)
+from operators import mass_operator, stiffness_operator
 from utils import facet_integration_domain
 
 float_type = np.float64

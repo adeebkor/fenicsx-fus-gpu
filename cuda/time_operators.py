@@ -1,10 +1,11 @@
 #
-# .. _test_operators:
+# .._time_operators:
 #
-# Test whether the operators are working correctly by comparing the output with
-# DOLFINx
+# Test the speed of the operators
 # =============================================================================
 # Copyright (C) 2024 Adeeb Arif Kor
+
+from time import perf_counter_ns
 
 import numpy as np
 from mpi4py import MPI
@@ -13,10 +14,9 @@ import numba.cuda as cuda
 
 import basix
 import basix.ufl
-from dolfinx.fem import assemble_vector, functionspace, form, Function
+from dolfinx.fem import functionspace, Function
 from dolfinx.la import InsertMode
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
-from ufl import inner, grad, ds, dx, TestFunction
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
@@ -50,7 +50,7 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-N = 8
+N = 16
 mesh = create_box(
   MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
   (N, N, N), cell_type=CellType.hexahedron, 
@@ -63,9 +63,9 @@ x_dofs = mesh.geometry.dofmap
 x_g = mesh.geometry.x
 cell_type = mesh.basix_cell()
 
-# Uncomment below if we would like to test unstructured mesh
-mesh.geometry.x[:, :] += np.random.uniform(
-  -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
+# # Uncomment below if we would like to test unstructured mesh
+# mesh.geometry.x[:, :] += np.random.uniform(
+#     -0.01, 0.01, (mesh.geometry.x.shape[0], 3))
 
 # Tensor product element
 family = basix.ElementFamily.P
@@ -78,6 +78,9 @@ element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 # Create function space
 V = functionspace(mesh, element)
 dofmap = V.dofmap.list
+
+if MPI.COMM_WORLD.rank == 0:
+    print(f"Number of degrees-of-freedom: {V.dofmap.index_map.size_global}")
 
 # Create function
 u0 = Function(V, dtype=float_type)  # Input function
@@ -158,10 +161,6 @@ for i, (cell, local_facet) in enumerate(boundary_data):
 
 bfacet_constants = np.ones(bfacet_dofmap.shape[0], dtype=float_type)
 
-# DOLFINx assembler for comparison
-md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
-v = TestFunction(V)
-
 # ------------- #
 # Mass operator #
 # ------------- #
@@ -183,20 +182,22 @@ b_d = cuda.to_device(b)
 # Call the mass operator function
 mass_operator[num_blocks_c, threadsperblock_c](u_d, cell_constants_d, b_d, detJ_d, dofmap_d)
 
-# Copy the result back to the host
-b_d.copy_to_host(b)
+# Timing mass operator function
+timing_mass_operator = np.empty(10)
+for i in range(10):
+  b[:] = 0.0
+  b_d = cuda.to_device(b)
+  tic = perf_counter_ns()
+  mass_operator[num_blocks_c, threadsperblock_c](u_d, cell_constants_d, b_d, detJ_d, dofmap_d)
+  toc = perf_counter_ns()
+  timing_mass_operator[i] = toc - tic
 
-a0_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
-b0_dolfinx = assemble_vector(a0_dolfinx)
-b0_dolfinx.scatter_reverse(InsertMode.add)
+timing_mass_operator *= 1e-9
 
-# Check the difference between the vectors
-mass_difference = np.linalg.norm(
-    b - b0_dolfinx.array) / np.linalg.norm(b0_dolfinx.array)
-print(f"Euclidean difference (mass operator): {mass_difference}",
-      flush=True)
-
-assert(mass_difference < tol)
+print(
+    f"Elapsed time (mass operator): "
+    f"{timing_mass_operator.mean():.7f} ± "
+    f"{timing_mass_operator.std():.7f} s")
 
 # ------------------ #
 # Stiffness operator #
@@ -232,21 +233,22 @@ dphi_1D_d = cuda.to_device(dphi_1D)
 # Call the stiffness operator function
 stiffness_operator[num_blocks, threadsperblock](u_d, cell_constants_d, b_d, G_d, dofmap_d, dphi_1D_d)
 
-# Copy the result back to the host
-b_d.copy_to_host(b)
+# Timing the stiffness operator function
+timing_stiffness_operator = np.empty(10)
+for i in range(10):
+  b[:] = 0.0
+  b_d = cuda.to_device(b)
+  tic = perf_counter_ns()
+  stiffness_operator[num_blocks, threadsperblock](u_d, cell_constants_d, b_d, G_d, dofmap_d, dphi_1D_d)
+  toc = perf_counter_ns()
+  timing_stiffness_operator[i] = toc - tic
 
-a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
-                  dtype=float_type)
-b1_dolfinx = assemble_vector(a1_dolfinx)
-b1_dolfinx.scatter_reverse(InsertMode.add)
+timing_stiffness_operator *= 1e-9
 
-# Check the difference between the vectors
-stiffness_difference = np.linalg.norm(
-    b - b1_dolfinx.array) / np.linalg.norm(b1_dolfinx.array)
-print(f"Euclidean difference (stiffness operator): {stiffness_difference}",
-      flush=True)
-
-assert(stiffness_difference < tol)
+print(
+    f"Elapsed time (stiffness operator): "
+    f"{timing_stiffness_operator.mean():.7f} ± "
+    f"{timing_stiffness_operator.std():.7f} s")
 
 # ------------------ #
 # Boundary operators #
@@ -269,18 +271,19 @@ b_d = cuda.to_device(b)
 # Call the mass operator function
 mass_operator[num_blocks_bfacet, threadsperblock_bfacet](u_d, bfacet_constants_d, b_d, detJ_f_d, bfacet_dofmap_d)
 
-# Copy the result back to the host
-b_d.copy_to_host(b)
+# Timing the boundary operator function
+timing_boundary_operator = np.empty(10)
+for i in range(10):
+  b[:] = 0.0
+  b_d = cuda.to_device(b)
+  tic = perf_counter_ns()
+  mass_operator[num_blocks_bfacet, threadsperblock_bfacet](u_d, bfacet_constants_d, b_d, detJ_f_d, bfacet_dofmap_d)
+  toc = perf_counter_ns()
+  timing_boundary_operator[i] = toc - tic
 
-a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
-b3_dolfinx = assemble_vector(a3_dolfinx)
-b3_dolfinx.scatter_reverse(InsertMode.add)
+timing_boundary_operator *= 1e-9
 
-# Check the difference between the vectors
-bfacet_difference = np.linalg.norm(
-    b - b3_dolfinx.array) / np.linalg.norm(b3_dolfinx.array)
-print(f"Euclidean difference (boundary operator): {bfacet_difference}",
-      flush=True)
-
-# Test the closeness between the vectors
-assert(bfacet_difference < tol)
+print(
+    f"Elapsed time (boundary facet operator): "
+    f"{timing_boundary_operator.mean():.7f} ± "
+    f"{timing_boundary_operator.std():.7f} s")
