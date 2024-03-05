@@ -181,6 +181,7 @@ b_d = cuda.to_device(b)
 
 # Call the mass operator function
 mass_operator[num_blocks_c, threadsperblock_c](u_d, cell_constants_d, b_d, detJ_d, dofmap_d)
+cuda.synchronize()
 
 # Timing mass operator function
 timing_mass_operator = np.empty(10)
@@ -189,6 +190,7 @@ for i in range(10):
   b_d = cuda.to_device(b)
   tic = perf_counter_ns()
   mass_operator[num_blocks_c, threadsperblock_c](u_d, cell_constants_d, b_d, detJ_d, dofmap_d)
+  cuda.synchronize()
   toc = perf_counter_ns()
   timing_mass_operator[i] = toc - tic
 
@@ -232,6 +234,7 @@ dphi_1D_d = cuda.to_device(dphi_1D)
 
 # Call the stiffness operator function
 stiffness_operator[num_blocks, threadsperblock](u_d, cell_constants_d, b_d, G_d, dofmap_d, dphi_1D_d)
+cuda.synchronize()
 
 # Timing the stiffness operator function
 timing_stiffness_operator = np.empty(10)
@@ -240,6 +243,7 @@ for i in range(10):
   b_d = cuda.to_device(b)
   tic = perf_counter_ns()
   stiffness_operator[num_blocks, threadsperblock](u_d, cell_constants_d, b_d, G_d, dofmap_d, dphi_1D_d)
+  cuda.synchronize()
   toc = perf_counter_ns()
   timing_stiffness_operator[i] = toc - tic
 
@@ -270,6 +274,7 @@ b_d = cuda.to_device(b)
 
 # Call the mass operator function
 mass_operator[num_blocks_bfacet, threadsperblock_bfacet](u_d, bfacet_constants_d, b_d, detJ_f_d, bfacet_dofmap_d)
+cuda.synchronize()
 
 # Timing the boundary operator function
 timing_boundary_operator = np.empty(10)
@@ -278,6 +283,7 @@ for i in range(10):
   b_d = cuda.to_device(b)
   tic = perf_counter_ns()
   mass_operator[num_blocks_bfacet, threadsperblock_bfacet](u_d, bfacet_constants_d, b_d, detJ_f_d, bfacet_dofmap_d)
+  cuda.synchronize()
   toc = perf_counter_ns()
   timing_boundary_operator[i] = toc - tic
 
