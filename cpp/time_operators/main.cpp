@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
     const int P = 4;
 
     // Create mesh and function space
-    const std::size_t N = 16;
+    const std::size_t N = 32;
     auto part = mesh::create_cell_partitioner(mesh::GhostMode::none);
     auto mesh = std::make_shared<mesh::Mesh<T>>(
       mesh::create_box(
@@ -40,6 +40,11 @@ int main(int argc, char* argv[]) {
     // Create function space
     auto V = std::make_shared<fem::FunctionSpace<T>>(
         fem::create_functionspace(functionspace_form_forms_m, "u", mesh));
+
+    auto dofs = V->dofmap()->index_map->size_global();
+
+    if (mpi_rank == 0)
+      std::cout << "Number of degrees-of-freedom: " << dofs << "\n";
 
     // Get index map and block size
     auto index_map = V->dofmap()->index_map;

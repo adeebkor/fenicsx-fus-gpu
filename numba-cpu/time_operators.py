@@ -46,7 +46,7 @@ nd = P + 1
 Nd = nd * nd * nd
 Nf = nd * nd
 
-N = 16
+N = 32
 mesh = create_box(
     MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, ghost_mode=GhostMode.none,
