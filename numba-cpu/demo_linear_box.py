@@ -23,8 +23,7 @@ from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMo
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
                         compute_boundary_facets_scaled_jacobian_determinant)
-from operators import (mass_operator, stiffness_operator, axpy, copy, 
-                       pointwise_divide)
+from operators import mass_operator, stiffness_operator
 from utils import facet_integration_domain
 
 float_type = np.float64
@@ -356,10 +355,8 @@ def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
         with common.Timer("~ b0 assembly"):
             stiff_operator_cell(u_n, cell_coeff2, b, G, dofmap)
 
-        with common.Timer("~ b1 assembly"):
+        with common.Timer("~ b facet assembly"):
             mass_operator_bfacet(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
-
-        with common.Timer("~ b2 assembly"):
             mass_operator_bfacet(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
         
         b_.scatter_reverse(la.InsertMode.add)
@@ -407,7 +404,8 @@ t = start_time
 if MPI.COMM_WORLD.rank == 0:
     print("Solve!", flush=True)
 
-tic = time.time()
+t_solve = common.Timer("Solve!")
+t_solve.start()
 while t < tf:
     dt = min(dt, tf-t)
 
@@ -444,20 +442,19 @@ while t < tf:
     t += dt
     step += 1
 
-    if step % 10 == 0 and MPI.COMM_WORLD.rank == 0:
+    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
 u_n_.x.scatter_forward()
 v_n_.x.scatter_forward()
 u_n[:] = u_[:]
 v_n[:] = v_[:]
+t_solve.stop()
 
-toc = time.time()
-elapsed = toc - tic
 
 if MPI.COMM_WORLD.rank == 0:
-    print(f"Solve time: {elapsed}")
-    print(f"Solve time per step: {elapsed/nstep}")
+    print(f"Solve time: {t_solve.elapsed()[0]}")
+    print(f"Solve time per step: {t_solve.elapsed()[0]/nstep}")
 
 # --------------------- #
 # Output final solution #

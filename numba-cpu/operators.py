@@ -218,24 +218,28 @@ def stiffness_operator(P, dphi, float_type):
     return operator
 
 
-@numba.njit(fastmath=True)
-def axpy(alpha: np.floating,
-         x: npt.NDArray[np.floating],
-         y: npt.NDArray[np.floating],
-         n: int):
+def axpy(local_size: int):
+    n = local_size
 
-    """
-    AXPY: y = a*x + y
+    @numba.njit(fastmath=True)
+    def kernel(alpha: np.floating,
+            x: npt.NDArray[np.floating],
+            y: npt.NDArray[np.floating]):
 
-    Parameters
-    ----------
-    alpha : scalar coefficient
-    x : input vector
-    y : input and output vector
-    """
+        """
+        AXPY: y = a*x + y
 
-    for i in range(n):
-        y[i] = alpha*x[i] + y[i]
+        Parameters
+        ----------
+        alpha : scalar coefficient
+        x : input vector
+        y : input and output vector
+        """
+
+        for i in range(n):
+            y[i] = alpha*x[i] + y[i]
+    
+    return kernel
 
 
 @numba.njit
