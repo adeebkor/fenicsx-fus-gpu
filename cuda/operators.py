@@ -170,9 +170,15 @@ def stiffness_operator(
 
 
 @cuda.jit
-def axpy(alpha, x, y):
+def axpy(alpha: np.floating, x: numba.types.Array, y: numba.types.Array):
     """
-    y = ax + y
+    AXPY: y = a*x + y
+
+    Parameters
+    ----------
+    alpha : scalar coefficient
+    x : input vector
+    y : input and output vector
     """
 
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
@@ -181,9 +187,14 @@ def axpy(alpha, x, y):
 
 
 @cuda.jit
-def copy(a, b):
+def copy(a: numba.types.Array, b: numba.types.Array):
     """
-    Copy array from a to b
+    Copy the entries of vector a to vector b
+
+    Parameters
+    ----------
+    a : input vector
+    b : output vector
     """
 
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
@@ -192,9 +203,14 @@ def copy(a, b):
 
 
 @cuda.jit
-def fill(alpha, x):
+def fill(alpha: np.floating, x: numba.types.Array):
     """
-    Fill array x with scalar alpha
+    Fill the entries of vector x with scalar alpha
+
+    Parameters
+    ----------
+    alpha : scalar
+    x : vector
     """
 
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
@@ -203,10 +219,16 @@ def fill(alpha, x):
 
 
 @cuda.jit
-def pointwise_divide(a, b, c):
+def pointwise_divide(a: numba.types.Array, b: numba.types.Array,
+                     c: numba.types.Array):
     """
-    Pointwise divide operation
-    c[i] = a[i] / b[i]
+    Pointwise divide: c = a / b
+
+    Parameters
+    ----------
+    a : input vector
+    b : input vector
+    c : output vector
     """
 
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
