@@ -20,10 +20,9 @@ def compute_boundary_facets_scaled_jacobian_determinant(
         mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
         boundary_data: npt.NDArray[np.int32],
         dphi_f: npt.NDArray[np.floating],
-        weights: npt.NDArray[np.floating],
-        float_type: np.dtype[np.floating]):
-
-    """"
+        weights: npt.NDArray[np.floating]
+):
+    """
     Compute the boundary facets Jacobian determinant and scaled it with the
     quadrature weights.
 
@@ -41,18 +40,23 @@ def compute_boundary_facets_scaled_jacobian_determinant(
     Note: Currently, this function only works for 3D mesh
     """
 
+    dtype = detJ_f.dtype
     x_dofs, x_g = mesh
 
     nq = weights.size  # Number of quadrature points
 
     # Map of the hexahedron reference facet Jacobian
     hex_reference_facet_jacobian = np.array(
-        [[[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]],
-         [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
-         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
-         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
-         [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
-         [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]], dtype=float_type)
+        [
+            [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]],
+            [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
+            [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
+            [[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]],
+        ],
+        dtype=dtype,
+    )
 
     for i, (cell, local_facet) in enumerate(boundary_data):
         coord_dofs = x_g[x_dofs[cell]]
@@ -75,8 +79,8 @@ def compute_scaled_jacobian_determinant(
         mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
         num_cell: int,
         dphi: npt.NDArray[np.floating],
-        weights: npt.NDArray[np.floating]):
-
+        weights: npt.NDArray[np.floating],
+):
     """
     Compute the determinant of the Jacobian and scaled it with the
     quadrature weights.
@@ -114,8 +118,8 @@ def compute_scaled_geometrical_factor(
         mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
         num_cell: int,
         dphi: npt.NDArray[np.floating],
-        weights: npt.NDArray[np.floating]):
-
+        weights: npt.NDArray[np.floating],
+):
     """
     Compute the scaled geometrical factor given by
 
