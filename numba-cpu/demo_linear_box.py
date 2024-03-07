@@ -30,7 +30,7 @@ float_type = np.float64
 
 # Source parameters
 source_frequency = 0.5e6
-source_amplitude = 60000.0 
+source_amplitude = 60000.0
 period = 1.0 / source_frequency
 angular_frequency = 2.0 * np.pi * source_frequency
 
@@ -39,7 +39,7 @@ speed_of_sound = 1500.0
 density = 1000.0
 
 # Domain parameters
-domain_length = 0.015
+domain_length = 0.03
 
 # FE parameters
 basis_degree = 4
@@ -225,7 +225,7 @@ if MPI.COMM_WORLD.rank == 0:
 
 detJ_f1 = np.zeros((boundary_data1.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
-    detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f, float_type)
+    detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f)
 
 # Compute scaled Jacobian determinant (absorbing facets)
 if MPI.COMM_WORLD.rank == 0:
@@ -233,7 +233,7 @@ if MPI.COMM_WORLD.rank == 0:
 
 detJ_f2 = np.zeros((boundary_data2.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
-    detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f, float_type)
+    detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f)
 
 # Create boundary facets dofmap (source)
 bfacet_dofmap1 = np.zeros(
@@ -379,7 +379,7 @@ a_runge = np.array([0.0, 0.5, 0.5, 1.0])
 b_runge = np.array([1.0/6.0, 1.0/3.0, 1.0/3.0, 1.0/6.0])
 c_runge = np.array([0.0, 0.5, 0.5, 1.0])
 
-# Solution vector at time step 
+# Solution vector at time step
 u_ = u_n.copy()
 v_ = v_n.copy()
 
