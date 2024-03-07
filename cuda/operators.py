@@ -167,3 +167,48 @@ def stiffness_operator(
 
     # Atomically add the computed value to the output array `y`
     cuda.atomic.add(y, dof, val)
+
+
+@cuda.jit
+def axpy(alpha, x, y):
+    """
+    y = ax + y
+    """
+
+    i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
+    if i < x.size:
+      y[i] = alpha*x[i] + y[i]
+
+
+@cuda.jit
+def copy(a, b):
+    """
+    Copy array from a to b
+    """
+
+    i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
+    if i < a.size:
+      b[i] = a[i]
+
+
+@cuda.jit
+def fill(alpha, x):
+    """
+    Fill array x with scalar alpha
+    """
+
+    i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
+    if i < x.size:
+        x[i] = alpha
+
+
+@cuda.jit
+def pointwise_divide(a, b, c):
+    """
+    Pointwise divide operation
+    c[i] = a[i] / b[i]
+    """
+
+    i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
+    if i < c.size:
+      c[i] = a[i] / b[i]
