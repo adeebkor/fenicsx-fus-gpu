@@ -60,8 +60,8 @@ Nf = nd * nd
 Nd = nd * nd * nd
 
 # Mesh parameters
-lmbda = speed_of_sound / source_frequency
-num_of_waves = domain_length / lmbda
+wave_length = speed_of_sound / source_frequency
+num_of_waves = domain_length / wave_length
 num_element = int(2 * num_of_waves)
 
 # Create mesh
@@ -303,7 +303,10 @@ with common.Timer("~ assemble lhs"):
 
     m_.scatter_reverse(la.InsertMode.add)
 
-# Set initial values for un and vn
+# ---------------------- #
+# Set initial conditions #
+# ---------------------- #
+
 u_n[:] = 0.0
 v_n[:] = 0.0
 

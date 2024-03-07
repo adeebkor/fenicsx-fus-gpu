@@ -50,8 +50,8 @@ quadrature_degree = {
 }
 
 # Mesh parameters
-lmbda = speed_of_sound / source_frequency
-num_of_waves = domain_length / lmbda
+wave_length = speed_of_sound / source_frequency
+num_of_waves = domain_length / wave_length
 num_element = int(2 * num_of_waves)
 
 # Create mesh
