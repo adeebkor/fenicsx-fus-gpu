@@ -40,7 +40,7 @@ speed_of_sound = 1500.0
 density = 1000.0
 
 # Domain parameters
-domain_length = 0.015
+domain_length = 0.03
 
 # FE parameters
 basis_degree = 4

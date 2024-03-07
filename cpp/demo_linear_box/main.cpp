@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
     const T density = 1000;      // (kg/m^3)
 
     // Domain parameters
-    const T domainLength = 0.015; // (m)
+    const T domainLength = 0.03; // (m)
 
     // FE parameters
     const int degreeOfBasis = 4;
@@ -63,6 +63,15 @@ int main(int argc, char* argv[]) {
         )
     );
     mesh->topology()->create_connectivity(1, 2);
+
+    // Create function space
+    auto V = std::make_shared<fem::FunctionSpace<T>>(
+        fem::create_functionspace(functionspace_form_forms_a, "u", mesh));
+
+    auto dofs = V->dofmap()->index_map->size_global();
+
+    if (mpi_rank == 0)
+      std::cout << "Number of degrees-of-freedom: " << dofs << "\n";
 
     // Mesh data
     const int tdim = mesh->topology()->dim();

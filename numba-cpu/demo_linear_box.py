@@ -14,8 +14,8 @@ from mpi4py import MPI
 
 import basix
 import basix.ufl
-from dolfinx import common, cpp, la, list_timings
-from dolfinx.common import Reduction, TimingType
+from dolfinx import cpp, la
+from dolfinx.common import list_timings, Reduction, Timer, TimingType
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import VTXWriter
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
@@ -295,10 +295,10 @@ mass_operator_bfacet(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
 
 u[:] = 1.0
 
-with common.Timer("~ assemble lhs"):
+with Timer("~ assemble lhs"):
     m[:] = 0.0
 
-    with common.Timer("~ m0 assembly"):
+    with Timer("~ m0 assembly"):
         mass_operator_cell(u, cell_coeff1, m, detJ, dofmap)
 
     m_.scatter_reverse(la.InsertMode.add)
@@ -340,32 +340,32 @@ def f(t: float, u: npt.NDArray[np.floating], v: npt.NDArray[np.floating],
         window = 1.0
 
     # Update boundary condition
-    with common.Timer("~ F1 (update source)"):
+    with Timer("~ F1 (update source)"):
         g[:] = window * source_amplitude * angular_frequency / \
             speed_of_sound * np.cos(angular_frequency * t)
 
     # Update fields
-    with common.Timer("~ F1 (update field)"):
+    with Timer("~ F1 (update field)"):
         u_n[:] = u[:]
         u_n_.x.scatter_forward()
         v_n[:] = v[:]
         v_n_.x.scatter_forward()
 
     # Assemble RHS
-    with common.Timer("~ F1 (assemble rhs)"):
+    with Timer("~ F1 (assemble rhs)"):
         b[:] = 0.0
 
-        with common.Timer("~ b0 assembly"):
+        with Timer("~ b0 assembly"):
             stiff_operator_cell(u_n, cell_coeff2, b, G, dofmap)
 
-        with common.Timer("~ b facet assembly"):
+        with Timer("~ b facet assembly"):
             mass_operator_bfacet(g, facet_coeff1, b, detJ_f1, bfacet_dofmap1)
             mass_operator_bfacet(v_n, facet_coeff2, b, detJ_f2, bfacet_dofmap2)
         
         b_.scatter_reverse(la.InsertMode.add)
 
     # Solve
-    with common.Timer("~ F1 (solve)"):
+    with Timer("~ F1 (solve)"):
         result[:] = b[:] / m[:]
 
 
@@ -407,37 +407,37 @@ t = start_time
 if MPI.COMM_WORLD.rank == 0:
     print("Solve!", flush=True)
 
-t_solve = common.Timer("Solve!")
+t_solve = Timer("Solve!")
 t_solve.start()
 while t < tf:
     dt = min(dt, tf-t)
 
     # Store solution at start of time step
-    with common.Timer("~ RK (copy ext)"):
+    with Timer("~ RK (copy ext)"):
         u0[:] = u_[:]
         v0[:] = v_[:]
 
     # Runge-Kutta step
     for i in range(n_rk):
-        with common.Timer("~ RK (copy int)"):
+        with Timer("~ RK (copy int)"):
             un[:] = u0[:]
             vn[:] = v0[:]
 
-        with common.Timer("~ RK (axpy a)"):
+        with Timer("~ RK (axpy a)"):
             un += a_runge[i]*dt*ku
             vn += a_runge[i]*dt*kv
 
         tn = t + c_runge[i] * dt
 
         # Evaluate slopes
-        with common.Timer("~ RK (f0)"):
+        with Timer("~ RK (f0)"):
             ku[:] = vn[:]
 
-        with common.Timer("~ RK (f1)"):
+        with Timer("~ RK (f1)"):
             f(tn, un, vn, kv)
 
         # Update solution
-        with common.Timer("~ RK (axpy b)"):
+        with Timer("~ RK (axpy b)"):
             u_ += b_runge[i]*dt*ku
             v_ += b_runge[i]*dt*kv
     
