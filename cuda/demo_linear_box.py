@@ -7,7 +7,6 @@
 
 import time
 
-import cupy as cp
 import numpy as np
 import numba
 import numba.cuda as cuda
@@ -15,8 +14,8 @@ from mpi4py import MPI
 
 import basix
 import basix.ufl
-from dolfinx import common, cpp, la
-from dolfinx.common import list_timings, Reduction, TimingType
+from dolfinx import cpp, la
+from dolfinx.common import list_timings, Reduction, Timer, TimingType
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import VTXWriter
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
@@ -24,7 +23,8 @@ from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMo
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
                         compute_boundary_facets_scaled_jacobian_determinant)
-from operators import mass_operator, stiffness_operator, axpy, copy, fill, pointwise_divide
+from operators import (mass_operator, stiffness_operator, axpy, copy, fill, 
+                       pointwise_divide)
 from utils import facet_integration_domain
 
 float_type = np.float64
@@ -131,7 +131,7 @@ dofmap = V.dofmap.list[:, perm]
 ndofs = V.dofmap.index_map.size_local
 
 if MPI.COMM_WORLD.rank == 0:
-    print(f"Number of degrees-of-freedom: {V.dofmap.index_map.size_global}")
+    print(f"Number of degrees-of-freedom: {ndofs}")
 
 # Define functions
 u_t_ = Function(V, dtype=float_type)
@@ -335,9 +335,16 @@ pointwise_divide[num_blocks_dofs, threadsperblock_dofs](m_d, b_d, u_t_d)
 # ------------ #
 
 fill[num_blocks_dofs, threadsperblock_dofs](1.0, u_t_d)
-fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
 
-mass_operator[num_blocks_m, threadsperblock_m](u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d)
+cuda.synchronize()
+with Timer("~ assemble lhs"):
+    fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
+
+    with Timer("~ m0 assembly"):
+        mass_operator[num_blocks_m, threadsperblock_m](u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d)
+        cuda.synchronize()
+    
+    cuda.synchronize()
 
 # ---------------------- #
 # Set initial conditions #
@@ -394,23 +401,30 @@ t = start_time
 if MPI.COMM_WORLD.rank == 0:
     print("Solve!", flush=True)
 
-t_solve = common.Timer("Solve!")
+t_solve = Timer("Solve!")
 t_solve.start()
 
 while t < tf:
     dt = min(dt, tf-t)
 
     # Store solution at start of time step
-    copy[num_blocks_dofs, threadsperblock_dofs](u_d, u0_d)
-    copy[num_blocks_dofs, threadsperblock_dofs](v_d, v0_d)
+    cuda.synchronize()
+    with Timer("~ RK (copy ext)"):
+        copy[num_blocks_dofs, threadsperblock_dofs](u_d, u0_d)
+        copy[num_blocks_dofs, threadsperblock_dofs](v_d, v0_d)
+        cuda.synchronize()
 
     # Runge-Kutta step
     for i in range(n_rk):
-        copy[num_blocks_dofs, threadsperblock_dofs](u0_d, un_d)
-        copy[num_blocks_dofs, threadsperblock_dofs](v0_d, vn_d)
+        with Timer("~ RK (copy int)"):
+            copy[num_blocks_dofs, threadsperblock_dofs](u0_d, un_d)
+            copy[num_blocks_dofs, threadsperblock_dofs](v0_d, vn_d)
+            cuda.synchronize()
 
-        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, ku_d, un_d)
-        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, kv_d, vn_d)
+        with Timer("~ RK (axpy a)"):
+            axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, ku_d, un_d)
+            axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, kv_d, vn_d)
+            cuda.synchronize()
 
         tn = t + c_runge[i] * dt
 
@@ -418,46 +432,62 @@ while t < tf:
         # Evaluate f0 #
         # ----------- #
 
-        copy[num_blocks_dofs, threadsperblock_dofs](vn_d, ku_d)
+        with Timer("~ RK (f0)"):
+            copy[num_blocks_dofs, threadsperblock_dofs](vn_d, ku_d)
+            cuda.synchronize()
 
         # ----------- #
         # Evaluate f1 #
         # ----------- #
 
-        # Compute window function
-        T = 1 / source_frequency
-        alpha = 4
+        with Timer("~ RK (f1)"):
+            # Compute window function
+            T = 1 / source_frequency
+            alpha = 4
 
-        if t < T * alpha:
-            window = 0.5 * (1 - np.cos(source_frequency * np.pi * t / alpha))
-        else:
-            window = 1.0
+            if t < T * alpha:
+                window = 0.5 * (1 - np.cos(source_frequency * np.pi * t / alpha))
+            else:
+                window = 1.0
 
-        # Update source function
-        g_vals = window * source_amplitude * angular_frequency / \
-            speed_of_sound * np.cos(angular_frequency * t)
-        fill[num_blocks_dofs, threadsperblock_dofs](g_vals, g_d)
+            # Update source function
+            with Timer("~ F1 (update source)"):
+                g_vals = window * source_amplitude * angular_frequency / \
+                    speed_of_sound * np.cos(angular_frequency * t)
+                fill[num_blocks_dofs, threadsperblock_dofs](g_vals, g_d)
+                cuda.synchronize()
 
-        # Update fields
-        copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
-        copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
+            # Update fields
+            with Timer("~ F1 (update field)"):
+                copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
+                copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
+                cuda.synchronize()
 
-        # Assemble RHS
-        fill[num_blocks_dofs, threadsperblock_dofs](0.0, b_d)
+            # Assemble RHS
+            with Timer("~ F1 (assemble rhs)"):
+                fill[num_blocks_dofs, threadsperblock_dofs](0.0, b_d)
 
-        stiffness_operator[num_blocks_s, threadsperblock_s](u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
-        mass_operator[num_blocks_f1, threadsperblock_m](g_d, facet_coeff1_d, b_d, detJ_f1_d, bfacet_dofmap1_d)
-        mass_operator[num_blocks_f2, threadsperblock_m](v_n_d, facet_coeff2_d, b_d, detJ_f2_d, bfacet_dofmap2_d)
-
-        # Solve
-        pointwise_divide[num_blocks_dofs, threadsperblock_dofs](b_d, m_d, kv_d)
+                with Timer("~ b0 assembly"):
+                    stiffness_operator[num_blocks_s, threadsperblock_s](u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
+                    cuda.synchronize()
+                
+                with Timer("~ b facet assembly"):
+                    mass_operator[num_blocks_f1, threadsperblock_m](g_d, facet_coeff1_d, b_d, detJ_f1_d, bfacet_dofmap1_d)
+                    mass_operator[num_blocks_f2, threadsperblock_m](v_n_d, facet_coeff2_d, b_d, detJ_f2_d, bfacet_dofmap2_d)
+                    cuda.synchronize()
+            
+            # Solve
+            with Timer("~ F1 (solve)"):
+                pointwise_divide[num_blocks_dofs, threadsperblock_dofs](b_d, m_d, kv_d)
+                cuda.synchronize()
 
         # --------------- #
         # Update solution #
         # --------------- #
 
-        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, ku_d, u_d)
-        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, kv_d, v_d)
+        with Timer("~ RK (axpy b)"):
+            axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, ku_d, u_d)
+            axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, kv_d, v_d)
         
     # Update time
     t += dt
@@ -480,3 +510,9 @@ if MPI.COMM_WORLD.rank == 0:
 
 with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
     f.write(0.0)
+
+# ------------ #
+# List timings #
+# ------------ #
+    
+list_timings(MPI.COMM_WORLD, [TimingType.wall], Reduction.average)
