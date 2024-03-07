@@ -142,7 +142,6 @@ def stiffness_operator(
     fw1 = coeff * (G1 * val_x + G3 * val_y + G4 * val_z)
     fw2 = coeff * (G2 * val_x + G4 * val_y + G5 * val_z)
     
-    cuda.syncthreads()
     scratchx[tx, ty, tz] = fw0
     scratchy[tx, ty, tz] = fw1
     scratchz[tx, ty, tz] = fw2
