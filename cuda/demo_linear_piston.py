@@ -1,11 +1,8 @@
 #
 # Linear wave
-# - Plane wave
-# - Homogenous media
+# - Benchmark 1 Source 2 from the benchmark paper.
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
-
-import time
 
 import numpy as np
 import numba
@@ -15,32 +12,32 @@ from mpi4py import MPI
 import basix
 import basix.ufl
 from dolfinx import cpp, la
-from dolfinx.common import list_timings, Reduction, Timer, TimingType
+from dolfinx.common import Timer
 from dolfinx.fem import functionspace, Function
-from dolfinx.io import VTXWriter
-from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
+from dolfinx.io import XDMFFile
+from dolfinx.mesh import GhostMode
 
 from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
                         compute_boundary_facets_scaled_jacobian_determinant)
 from operators import (mass_operator, stiffness_operator, axpy, copy, fill, 
                        pointwise_divide)
-from utils import facet_integration_domain
+from utils import facet_integration_domain, compute_eval_params
 
 float_type = np.float64
 
 # Source parameters
-source_frequency = 0.5e6
-source_amplitude = 60000.0
-period = 1.0 / source_frequency
-angular_frequency = 2.0 * np.pi * source_frequency
+source_frequency = 0.5e6  # Hz
+source_amplitude = 60000.0  # Pa
+period = 1.0 / source_frequency  # s
+angular_frequency = 2.0 * np.pi * source_frequency  # rad/s
 
 # Material parameters
-speed_of_sound = 1500.0
-density = 1000.0
+speed_of_sound = 1500.0  # m/s
+density = 1000.0  # kg/m^3
 
 # Domain parameters
-domain_length = 0.12
+domain_length = 0.12  # m
 
 # FE parameters
 basis_degree = 4
@@ -58,24 +55,17 @@ quadrature_degree = {
 
 nd = basis_degree + 1
 
+# Read mesh and mesh tags
+with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
+    mesh_name = "planar_3d_0"
+    mesh = fmesh.read_mesh(name=f"{mesh_name}", ghost_mode=GhostMode.none)
+    tdim = mesh.topology.dim
+    gdim = mesh.geometry.dim
+    mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
+    mesh.topology.create_connectivity(tdim-1, tdim)
+    mt_facet = fmesh.read_meshtags(mesh, name=f"{mesh_name}_facets")
+
 # Mesh parameters
-wave_length = speed_of_sound / source_frequency
-num_of_waves = domain_length / wave_length
-num_element = int(2 * num_of_waves)
-
-# Create mesh
-mesh = create_box(
-    MPI.COMM_WORLD,
-    ((0., 0., 0.), (domain_length, domain_length, domain_length)),
-    (num_element, num_element, num_element),
-    cell_type=CellType.hexahedron,
-    ghost_mode=GhostMode.none,
-    dtype=float_type
-)
-
-# Mesh data
-tdim = mesh.topology.dim
-gdim = mesh.geometry.dim
 num_cells = mesh.topology.index_map(tdim).size_local
 hmin = np.array([cpp.mesh.h(
     mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()])
@@ -93,11 +83,39 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-final_time = domain_length / speed_of_sound + 2.0 / source_frequency
-number_of_step = (final_time - start_time) / time_step_size + 1
+final_time = domain_length / speed_of_sound + 8.0 / source_frequency
+number_of_step = int((final_time - start_time) / time_step_size) + 1
 
 if MPI.COMM_WORLD.rank == 0:
-    print(f"Number of steps: {int(number_of_step)}", flush=True)
+    print(f"Number of steps: {number_of_step}", flush=True)
+
+# -----------------------------------------------------------------------------
+# Evaluation parameters
+npts_x = 141
+npts_z = 241
+
+x_p = np.linspace(-0.035, 0.035, npts_x, dtype=float_type)
+z_p = np.linspace(0, domain_length, npts_z, dtype=float_type)
+
+X_p, Z_p = np.meshgrid(x_p, z_p)
+
+points = np.zeros((3, npts_x*npts_z), dtype=float_type)
+points[0] = X_p.flatten()
+points[2] = Z_p.flatten()
+
+x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
+
+data = np.zeros_like(x_eval, dtype=float_type)
+
+try:
+    data[:, 0] = x_eval[:, 0]
+    data[:, 1] = x_eval[:, 2]
+except:
+    pass
+
+num_step_per_period = step_per_period + 2
+step_period = 0
+# -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
@@ -179,15 +197,9 @@ if MPI.COMM_WORLD.rank == 0:
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
-# Boundary facet (source)
-boundary_facets1 = locate_entities_boundary(
-    mesh, mesh.topology.dim-1, lambda x: np.isclose(x[0], np.finfo(float).eps)
-)
-
-# Boundary facet (absorbing)
-boundary_facets2 = locate_entities_boundary(
-    mesh, mesh.topology.dim-1, lambda x: np.isclose(x[0], domain_length)
-)
+# Compute geometric data of boundary facet entities
+boundary_facets1 = mt_facet.indices[mt_facet.values == 1]
+boundary_facets2 = mt_facet.indices[mt_facet.values == 2]
 
 boundary_data1 = facet_integration_domain(
     boundary_facets1, mesh)  # cells with boundary facets (source)
@@ -335,15 +347,8 @@ pointwise_divide[num_blocks_dofs, threadsperblock_dofs](m_d, b_d, u_t_d)
 
 fill[num_blocks_dofs, threadsperblock_dofs](1.0, u_t_d)
 
-cuda.synchronize()
-with Timer("~ assemble lhs"):
-    fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
-
-    with Timer("~ m0 assembly"):
-        mass_operator[num_blocks_m, threadsperblock_m](u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d)
-        cuda.synchronize()
-    
-    cuda.synchronize()
+fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
+mass_operator[num_blocks_m, threadsperblock_m](u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d)
 
 # ---------------------- #
 # Set initial conditions #
@@ -406,23 +411,16 @@ while t < tf:
     dt = min(dt, tf-t)
 
     # Store solution at start of time step
-    cuda.synchronize()
-    with Timer("~ RK (copy ext)"):
-        copy[num_blocks_dofs, threadsperblock_dofs](u_d, u0_d)
-        copy[num_blocks_dofs, threadsperblock_dofs](v_d, v0_d)
-        cuda.synchronize()
+    copy[num_blocks_dofs, threadsperblock_dofs](u_d, u0_d)
+    copy[num_blocks_dofs, threadsperblock_dofs](v_d, v0_d)
 
     # Runge-Kutta step
     for i in range(n_rk):
-        with Timer("~ RK (copy int)"):
-            copy[num_blocks_dofs, threadsperblock_dofs](u0_d, un_d)
-            copy[num_blocks_dofs, threadsperblock_dofs](v0_d, vn_d)
-            cuda.synchronize()
+        copy[num_blocks_dofs, threadsperblock_dofs](u0_d, un_d)
+        copy[num_blocks_dofs, threadsperblock_dofs](v0_d, vn_d)
 
-        with Timer("~ RK (axpy a)"):
-            axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, ku_d, un_d)
-            axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, kv_d, vn_d)
-            cuda.synchronize()
+        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, ku_d, un_d)
+        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, kv_d, vn_d)
 
         tn = t + c_runge[i] * dt
 
@@ -430,62 +428,46 @@ while t < tf:
         # Evaluate f0 #
         # ----------- #
 
-        with Timer("~ RK (f0)"):
-            copy[num_blocks_dofs, threadsperblock_dofs](vn_d, ku_d)
-            cuda.synchronize()
+        copy[num_blocks_dofs, threadsperblock_dofs](vn_d, ku_d)
 
         # ----------- #
         # Evaluate f1 #
         # ----------- #
 
-        with Timer("~ RK (f1)"):
-            # Compute window function
-            T = 1 / source_frequency
-            alpha = 4
+        # Compute window function
+        T = 1 / source_frequency
+        alpha = 4
 
-            if t < T * alpha:
-                window = 0.5 * (1 - np.cos(source_frequency * np.pi * t / alpha))
-            else:
-                window = 1.0
+        if t < T * alpha:
+            window = 0.5 * (1 - np.cos(source_frequency * np.pi * t / alpha))
+        else:
+            window = 1.0
 
-            # Update source function
-            with Timer("~ F1 (update source)"):
-                g_vals = window * source_amplitude * angular_frequency / \
-                    speed_of_sound * np.cos(angular_frequency * t)
-                fill[num_blocks_dofs, threadsperblock_dofs](g_vals, g_d)
-                cuda.synchronize()
+        # Update source function
+        g_vals = window * source_amplitude * angular_frequency / \
+            speed_of_sound * np.cos(angular_frequency * t)
+        fill[num_blocks_dofs, threadsperblock_dofs](g_vals, g_d)
 
-            # Update fields
-            with Timer("~ F1 (update field)"):
-                copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
-                copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
-                cuda.synchronize()
+        # Update fields
+        copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
+        copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
 
-            # Assemble RHS
-            with Timer("~ F1 (assemble rhs)"):
-                fill[num_blocks_dofs, threadsperblock_dofs](0.0, b_d)
+        # Assemble RHS
+        fill[num_blocks_dofs, threadsperblock_dofs](0.0, b_d)
 
-                with Timer("~ b0 assembly"):
-                    stiffness_operator[num_blocks_s, threadsperblock_s](u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
-                    cuda.synchronize()
-                
-                with Timer("~ b facet assembly"):
-                    mass_operator[num_blocks_f1, threadsperblock_m](g_d, facet_coeff1_d, b_d, detJ_f1_d, bfacet_dofmap1_d)
-                    mass_operator[num_blocks_f2, threadsperblock_m](v_n_d, facet_coeff2_d, b_d, detJ_f2_d, bfacet_dofmap2_d)
-                    cuda.synchronize()
+        stiffness_operator[num_blocks_s, threadsperblock_s](u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
+        mass_operator[num_blocks_f1, threadsperblock_m](g_d, facet_coeff1_d, b_d, detJ_f1_d, bfacet_dofmap1_d)
+        mass_operator[num_blocks_f2, threadsperblock_m](v_n_d, facet_coeff2_d, b_d, detJ_f2_d, bfacet_dofmap2_d)
             
-            # Solve
-            with Timer("~ F1 (solve)"):
-                pointwise_divide[num_blocks_dofs, threadsperblock_dofs](b_d, m_d, kv_d)
-                cuda.synchronize()
+        # Solve
+        pointwise_divide[num_blocks_dofs, threadsperblock_dofs](b_d, m_d, kv_d)
 
         # --------------- #
         # Update solution #
         # --------------- #
 
-        with Timer("~ RK (axpy b)"):
-            axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, ku_d, u_d)
-            axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, kv_d, v_d)
+        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, ku_d, u_d)
+        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, kv_d, v_d)
         
     # Update time
     t += dt
@@ -494,6 +476,30 @@ while t < tf:
     if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
+    # -------------------------------------------------------------------------
+    # Collect data
+
+    if (t > domain_length / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
+        u_n_d.copy_to_host(u_n)
+
+        # Evaluate function
+        cuda.synchronize()
+        u_n_eval = u_n_.eval(x_eval, cell_eval)
+
+        try:
+            data[:, 2] = u_n_eval.flatten()
+        except:
+            pass
+
+        fname = f"/home/adeeb/fenicsx-linear-wave/data/pressure_field_{step_period}.txt"
+        f_data = open(fname, "a")
+        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
+        f_data.close()
+    
+        step_period += 1
+    # -------------------------------------------------------------------------
+
+
 u_n_d.copy_to_host(u_n) 
 v_n_d.copy_to_host(v_n)
 t_solve.stop()
@@ -501,16 +507,3 @@ t_solve.stop()
 if MPI.COMM_WORLD.rank == 0:
     print(f"Solve time: {t_solve.elapsed()[0]}")
     print(f"Solve time per step: {t_solve.elapsed()[0]/nstep}")
-
-# --------------------- #
-# Output final solution #
-# --------------------- #
-
-with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
-    f.write(0.0)
-
-# ------------ #
-# List timings #
-# ------------ #
-    
-list_timings(MPI.COMM_WORLD, [TimingType.wall], Reduction.average)
