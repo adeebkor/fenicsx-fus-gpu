@@ -1,5 +1,6 @@
 import numpy as np
 import numba
+from numba import float32
 import numba.cuda as cuda
 
 
@@ -115,17 +116,17 @@ def stiffness_operator(
     cuda.syncthreads()
 
     # Apply contraction in the x-direction
-    val_x = 0.0
+    val_x = float32(0.0)
     for ix in range(nd):
       val_x += dphi[tx, ix] * scratch[ix, ty, tz]
 
     # Apply contraction in the y-direction
-    val_y = 0.0
+    val_y = float32(0.0)
     for iy in range(nd):
       val_y += dphi[ty, iy] * scratch[tx, iy, tz]
 
     # Apply contraction in the z-direction
-    val_z = 0.0
+    val_z = float32(0.0)
     for iz in range(nd):
       val_z += dphi[tz, iz] * scratch[tx, ty, iz]
 
@@ -148,17 +149,17 @@ def stiffness_operator(
 
     cuda.syncthreads()
     # Apply contraction in the x-direction
-    val_x = 0.0
+    val_x = float32(0.0)
     for ix in range(nd):
        val_x += dphi[ix, tx] * scratchx[ix, ty, tz]
 
     # Apply contraction in the y-direction
-    val_y = 0.0
+    val_y = float32(0.0)
     for iy in range(nd):
        val_y += dphi[iy, ty] * scratchy[tx, iy, tz]
 
     # Apply contraction in the z-direction
-    val_z = 0.0
+    val_z = float32(0.0)
     for iz in range(nd):
        val_z += dphi[iz, tz] * scratchz[tx, ty, iz]
 
