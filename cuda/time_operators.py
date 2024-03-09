@@ -105,16 +105,19 @@ gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 # Compute scaled Jacobian determinant (cell)
+print("Computing scaled Jacobian determinant", flush=True)
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
 cell_constants = np.ones(dofmap.shape[0], dtype=float_type)
 
 # Compute scaled geometrical factor (J^{-T}J_{-1})
+print("Computing scaled geometrical factor", flush=True)
 G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
 # Compute geometric data of boundary facet entities
+print("Computing scaled Jacobian determinant (boundary facets)", flush=True)
 boundary_facets = locate_entities_boundary(
     mesh, mesh.topology.dim-1, lambda x: np.full(x.shape[1], True, dtype=bool))
 
@@ -160,6 +163,8 @@ for i, (cell, local_facet) in enumerate(boundary_data):
     bfacet_dofmap[i, :] = dofmap[cell][local_facet_dof[local_facet]]
 
 bfacet_constants = np.ones(bfacet_dofmap.shape[0], dtype=float_type)
+
+print("Running operators!", flush=True)
 
 # ------------- #
 # Mass operator #
