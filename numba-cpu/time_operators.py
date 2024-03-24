@@ -144,7 +144,7 @@ for f in range(6):
 # Compute scaled Jacobian determinant (boundary facets)
 detJ_f = np.zeros((boundary_data.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
-    detJ_f, (x_dofs, x_g), boundary_data, dphi_f, wts_f, float_type)
+    detJ_f, (x_dofs, x_g), boundary_data, dphi_f, wts_f)
 
 # Create boundary facets dofmap
 bfacet_dofmap = np.zeros(
