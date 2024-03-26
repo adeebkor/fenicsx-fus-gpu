@@ -10,7 +10,7 @@
 #include <dolfinx.h>
 #include <dolfinx/io/XDMFFile.h>
 
-using T = double;
+using T = float;
 
 using namespace dolfinx;
 
@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
     const std::size_t N = 32;
     auto part = mesh::create_cell_partitioner(mesh::GhostMode::none);
     auto mesh = std::make_shared<mesh::Mesh<T>>(
-      mesh::create_box(
+      mesh::create_box<T>(
         MPI_COMM_WORLD,
         {{{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0}}},
         {N, N, N},

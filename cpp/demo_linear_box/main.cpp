@@ -15,8 +15,8 @@
 #include <iomanip>
 #include <iostream>
 
-#define T_MPI MPI_DOUBLE
-using T = double;
+#define T_MPI MPI_FLOAT
+using T = float;
 
 int main(int argc, char* argv[]) {
   dolfinx::init_logging(argc, argv);
@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
     // Create mesh
     auto part = mesh::create_cell_partitioner(mesh::GhostMode::none);
     auto mesh = std::make_shared<mesh::Mesh<T>>(
-        mesh::create_box(
+        mesh::create_box<T>(
             MPI_COMM_WORLD,
             {{{0.0, 0.0, 0.0}, {domainLength, domainLength, domainLength}}},
             {numOfElement, numOfElement, numOfElement},
