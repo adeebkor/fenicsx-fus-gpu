@@ -68,7 +68,8 @@ with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
 # Mesh parameters
 num_cells = mesh.topology.index_map(tdim).size_local
 hmin = np.array([cpp.mesh.h(
-    mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()])
+    mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()],
+    dtype=float_type)
 mesh_size = np.zeros(1, dtype=float_type)
 MPI.COMM_WORLD.Allreduce(hmin, mesh_size, op=MPI.MIN)
 
@@ -88,34 +89,6 @@ number_of_step = int((final_time - start_time) / time_step_size) + 1
 
 if MPI.COMM_WORLD.rank == 0:
     print(f"Number of steps: {number_of_step}", flush=True)
-
-# -----------------------------------------------------------------------------
-# Evaluation parameters
-npts_x = 141
-npts_z = 241
-
-x_p = np.linspace(-0.035, 0.035, npts_x, dtype=float_type)
-z_p = np.linspace(0, domain_length, npts_z, dtype=float_type)
-
-X_p, Z_p = np.meshgrid(x_p, z_p)
-
-points = np.zeros((3, npts_x*npts_z), dtype=float_type)
-points[0] = X_p.flatten()
-points[2] = Z_p.flatten()
-
-x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
-
-data = np.zeros_like(x_eval, dtype=float_type)
-
-try:
-    data[:, 0] = x_eval[:, 0]
-    data[:, 1] = x_eval[:, 2]
-except:
-    pass
-
-num_step_per_period = step_per_period + 2
-step_period = 0
-# -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
@@ -475,30 +448,6 @@ while t < tf:
 
     if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
-
-    # -------------------------------------------------------------------------
-    # Collect data
-
-    if (t > domain_length / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
-        u_n_d.copy_to_host(u_n)
-
-        # Evaluate function
-        cuda.synchronize()
-        u_n_eval = u_n_.eval(x_eval, cell_eval)
-
-        try:
-            data[:, 2] = u_n_eval.flatten()
-        except:
-            pass
-
-        fname = f"/home/adeeb/fenicsx-linear-wave/data/pressure_field_{step_period}.txt"
-        f_data = open(fname, "a")
-        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
-        f_data.close()
-    
-        step_period += 1
-    # -------------------------------------------------------------------------
-
 
 u_n_d.copy_to_host(u_n) 
 v_n_d.copy_to_host(v_n)

@@ -78,7 +78,8 @@ tdim = mesh.topology.dim
 gdim = mesh.geometry.dim
 num_cells = mesh.topology.index_map(tdim).size_local
 hmin = np.array([cpp.mesh.h(
-    mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()])
+    mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()],
+    dtype=float_type)
 mesh_size = np.zeros(1, dtype=float_type)
 MPI.COMM_WORLD.Allreduce(hmin, mesh_size, op=MPI.MIN)
 
