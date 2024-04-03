@@ -6,6 +6,7 @@
 # ============================================================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
+import sys
 from time import perf_counter_ns
 
 import numpy as np
@@ -20,7 +21,9 @@ from dolfinx.mesh import create_box, CellType, GhostMode
 
 from operators import stiffness_operator
 
-float_type = np.float64
+float_type = np.dtype(sys.argv[1]).type
+
+assert (float_type is np.float32) or (float_type is np.float64)
 
 # Source parameters
 source_frequency = 0.5e6
@@ -36,7 +39,7 @@ density = 1000.0
 domain_length = 0.12
 
 # FE parameters
-basis_degree = 4
+basis_degree = int(sys.argv[2])
 quadrature_degree = {
     2: 3,
     3: 4,
@@ -54,7 +57,8 @@ nd = basis_degree + 1
 # Mesh parameters
 wave_length = speed_of_sound / source_frequency
 num_of_waves = domain_length / wave_length
-num_element = int(2 * num_of_waves)
+element_per_wavelength = float(sys.argv[3])
+num_element = int(element_per_wavelength * num_of_waves)
 
 # Create mesh
 mesh = create_box(
