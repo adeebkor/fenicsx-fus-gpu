@@ -320,7 +320,8 @@ threadsperblock_s = (nd, nd, nd)
 num_blocks_s = num_cells
 
 mass_operator[num_blocks_m, threadsperblock_m](u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d)
-stiffness_operator[num_blocks_s, threadsperblock_s](u_t_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
+stiff_operator_cell = stiffness_operator(basis_degree, float_type)
+stiff_operator_cell[num_blocks_s, threadsperblock_s](u_t_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
 
 threadsperblock_dofs = 1024
 num_blocks_dofs = (ndofs + (threadsperblock_dofs - 1)) // threadsperblock_dofs
@@ -467,7 +468,7 @@ while t < tf:
                 fill[num_blocks_dofs, threadsperblock_dofs](0.0, b_d)
 
                 with Timer("~ b0 assembly"):
-                    stiffness_operator[num_blocks_s, threadsperblock_s](u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
+                    stiff_operator_cell[num_blocks_s, threadsperblock_s](u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
                     cuda.synchronize()
                 
                 with Timer("~ b facet assembly"):

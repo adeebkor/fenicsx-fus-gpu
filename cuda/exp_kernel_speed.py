@@ -20,7 +20,7 @@ from dolfinx.mesh import create_box, CellType, GhostMode
 
 from operators import stiffness_operator
 
-float_type = np.float32
+float_type = np.float64
 
 # Source parameters
 source_frequency = 0.5e6
@@ -153,10 +153,11 @@ b0_d = cuda.to_device(b0_h)
 b1_d = cuda.to_device(b1_h)
 
 # Call the stiffness operator function
-stiffness_operator[num_blocks, threadsperblock](
+stiff_operator_cell = stiffness_operator(basis_degree, float_type)
+stiff_operator_cell[num_blocks, threadsperblock](
     u0_d, cell_constants_d, b0_d, G_d, dofmap_tp_d, dphi_1D_d
 )
-stiffness_operator[num_blocks, threadsperblock](
+stiff_operator_cell[num_blocks, threadsperblock](
     u1_d, cell_constants_d, b1_d, G_d, dofmap_d, dphi_1D_d
 )
 
@@ -168,7 +169,7 @@ for rep in range(nreps):
     b1_d = cuda.to_device(b1_h)
     tic = perf_counter_ns()
     cuda.synchronize()
-    stiffness_operator[num_blocks, threadsperblock](
+    stiff_operator_cell[num_blocks, threadsperblock](
         u1_d, cell_constants_d, b1_d, G_d, dofmap_d, dphi_1D_d)
     cuda.synchronize()
     toc = perf_counter_ns()
@@ -187,7 +188,7 @@ for rep in range(nreps):
     b0_d = cuda.to_device(b0_h)
     tic = perf_counter_ns()
     cuda.synchronize()
-    stiffness_operator[num_blocks, threadsperblock](
+    stiff_operator_cell[num_blocks, threadsperblock](
         u0_d, cell_constants_d, b0_d, G_d, dofmap_tp_d, dphi_1D_d)
     cuda.synchronize()
     toc = perf_counter_ns()

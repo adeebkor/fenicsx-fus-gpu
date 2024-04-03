@@ -230,7 +230,8 @@ b_d = cuda.to_device(b)
 dphi_1D_d = cuda.to_device(dphi_1D)
 
 # Call the stiffness operator function
-stiffness_operator[num_blocks, threadsperblock](u_d, cell_constants_d, b_d, G_d, dofmap_d, dphi_1D_d)
+stiff_operator_cell = stiffness_operator(P, float_type)
+stiff_operator_cell[num_blocks, threadsperblock](u_d, cell_constants_d, b_d, G_d, dofmap_d, dphi_1D_d)
 
 # Copy the result back to the host
 b_d.copy_to_host(b)
