@@ -1,20 +1,11 @@
 import numpy as np
 from mpi4py import MPI
 
-import numba.cuda as cuda
-
 import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
 from dolfinx.la import InsertMode
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
-from ufl import inner, grad, ds, dx, TestFunction
-
-# Check if CUDA is available
-if cuda.is_available():
-    print("CUDA is available")
-
-cuda.detect()
 
 float_type = np.float64
 
@@ -30,6 +21,9 @@ Q = {
     9: 16,
     10: 18,
 }  # Quadrature degree
+
+nd = P + 1
+Nd = nd * nd * nd
 
 N = 4
 mesh = create_box(
@@ -49,7 +43,7 @@ family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 cell_type = mesh.basix_cell()
 
-basix_element = basix.create_tp_element(family, cell_type, P, variant)
+basix_element = basix.create_element(family, cell_type, P, variant)  # doesn't work with tp element
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Create function space
@@ -61,58 +55,124 @@ imap = V.dofmap.index_map
 rank = MPI.COMM_WORLD.rank
 barrier = MPI.COMM_WORLD.Barrier
 
-# Extract data for communication
+# Send setup
 nlocal = imap.size_local
 nghost = imap.num_ghosts
 owners = imap.owners
-unique_owners, send_size = np.unique(owners, return_counts=True)
-send_ind = np.argsort(owners)
+unique_owners, ghost_size = np.unique(owners, return_counts=True)
+print(f"{rank} : {unique_owners} : {ghost_size}")
+sort_idx = np.argsort(owners)
 
-# print(f"{rank} : {unique_owners}")
+send_offsets = np.cumsum(ghost_size)
+send_offsets = np.insert(send_offsets, 0, 0)
 
+# Receive setup
 shared_dofs = imap.index_to_dest_ranks()
-shared_rank = np.unique(shared_dofs.array)
+shared_ranks = np.unique(shared_dofs.array)
 
-source = []
-for r in shared_rank:
+sources = []
+for shared_rank in shared_ranks:
     for dof in range(nlocal):
-        if r in shared_dofs.links(dof):
-            source.append(r)
+        if shared_rank in shared_dofs.links(dof):
+            sources.append(shared_rank)
 
-source = np.array(source)
-src, recv_size = np.unique(source, return_counts=True)
-# print(f"{rank} : {src}")
-
-vec = np.ones(nlocal + nghost, dtype=float_type)
+sources = np.array(sources)
+unique_sources, recv_size = np.unique(sources, return_counts=True)
 recv_offsets = np.cumsum(recv_size)
 recv_offsets = np.insert(recv_offsets, 0, 0)
 
-# Communicate indices data
-all_reqs = []
-send_buff = np.zeros(send_ind.size, dtype=np.int64)
-send_offsets = np.cumsum(send_size)
-send_offsets = np.insert(send_offsets, 0, 0)
-send_buff[:] = imap.ghosts[send_ind]
+all_requests = []
+
+# Send
+send_buff = np.zeros(np.sum(send_size), dtype=np.int64)
+send_buff[:] = imap.ghosts[sort_idx]
 for i, owner in enumerate(unique_owners):  # send to destination
     begin = send_offsets[i]
     end = send_offsets[i + 1]
     reqs = MPI.COMM_WORLD.Isend(send_buff[begin:end], dest=owner)
-    all_reqs.append(reqs)
+    all_requests.append(reqs)
 
-vec_ghost_recv = np.zeros(sum(recv_size), dtype=np.int64)
-for i, s in enumerate(src):  # receive from source
+# Receive
+recv_buff = np.zeros(np.sum(recv_size), dtype=np.int64)
+for i, source in enumerate(unique_sources):  # receive from source
     begin = recv_offsets[i]
     end = recv_offsets[i + 1]
-    reqr = MPI.COMM_WORLD.Irecv(vec_ghost_recv[begin:end], source=s)
-    all_reqs.append(reqr)
+    reqr = MPI.COMM_WORLD.Irecv(recv_buff[begin:end], source=source)
+    all_requests.append(reqr)
 
-MPI.Request.Waitall(all_reqs)
+MPI.Request.Waitall(all_requests)
 
-print(f"{rank} : {vec_ghost_recv - imap.local_range[0]}")
-recv_idx = vec_ghost_recv - imap.local_range[0]
+recv_idx = recv_buff - imap.local_range[0]
 
-vec[recv_idx] += vec_ghost_recv  # unpack
-send_buffer = vec[recv_idx]  # pack
+# -------------------- #
+# Test scatter reverse #
+# -------------------- #
 
-# Correct size on both send and receive
-# Putting it into local array
+u0 = Function(V, dtype=float_type)
+u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
+               * np.sin(4*np.pi*x[2]))
+u = u0.x.array
+u_ = u.copy()
+
+all_requests = []
+
+# Send
+send_buff = np.zeros(np.sum(send_size), dtype=float_type)
+u_ghosts = u[-nghost:]
+send_buff[:] = u_ghosts[sort_idx]
+for i, owner in enumerate(unique_owners):  # send to destination
+    begin = send_offsets[i]
+    end = send_offsets[i + 1]
+    reqs = MPI.COMM_WORLD.Isend(send_buff[begin:end], dest=owner)
+    all_requests.append(reqs)
+
+# Receive
+recv_buff = np.zeros(np.sum(recv_size), dtype=float_type)
+for i, source in enumerate(unique_sources):  # receive from source
+    begin = recv_offsets[i]
+    end = recv_offsets[i + 1]
+    reqr = MPI.COMM_WORLD.Irecv(recv_buff[begin:end], source=source)
+    all_requests.append(reqr)
+
+MPI.Request.Waitall(all_requests)
+
+# Do scatter reverse
+u_[recv_idx] += recv_buff
+u0.x.scatter_reverse(InsertMode.add)
+diff_idx = np.where(~np.isclose(u_, u))
+print(f"REVERSE: {rank}: {np.allclose(u, u_)}", flush=True)
+
+# -------------------- #
+# Test scatter forward #
+# -------------------- #
+
+all_requests = []
+
+# Send
+send_buff = np.zeros(np.sum(recv_size), dtype=float_type)
+u_owners = u[recv_idx]
+send_buff[:] = u_owners
+for i, dest in enumerate(unique_sources):
+    begin = recv_offsets[i]
+    end = recv_offsets[i + 1]
+    reqs = MPI.COMM_WORLD.Isend(send_buff[begin:end], dest=dest)
+    all_requests.append(reqs)
+
+# Receive
+recv_buff = np.zeros(np.sum(send_size), dtype=float_type)
+for i, src in enumerate(unique_owners):
+    begin = send_offsets[i]
+    end = send_offsets[i + 1]
+    reqr = MPI.COMM_WORLD.Irecv(recv_buff[begin:end], source=src)
+    all_requests.append(reqr)
+
+MPI.Request.Waitall(all_requests)
+
+# Do scatter forward
+u_[-nghost:][sort_idx] = recv_buff
+u0.x.scatter_forward()
+diff_idx = np.where(~np.isclose(u_, u))
+print(f"FORWARD: {rank}: {np.allclose(u, u_)}", flush=True)
+
+# vec[recv_idx] += vec_ghost_recv  # unpack
+# send_buffer = vec[recv_idx]  # pack
