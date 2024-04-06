@@ -59,11 +59,10 @@ barrier = MPI.COMM_WORLD.Barrier
 nlocal = imap.size_local
 nghost = imap.num_ghosts
 owners = imap.owners
-unique_owners, ghost_size = np.unique(owners, return_counts=True)
-print(f"{rank} : {unique_owners} : {ghost_size}")
+unique_owners, send_size = np.unique(owners, return_counts=True)
 sort_idx = np.argsort(owners)
 
-send_offsets = np.cumsum(ghost_size)
+send_offsets = np.cumsum(send_size)
 send_offsets = np.insert(send_offsets, 0, 0)
 
 # Receive setup
