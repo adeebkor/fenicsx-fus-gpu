@@ -18,15 +18,12 @@ float_type = np.float64
 
 P = 4  # Basis function order
 
-nd = P + 1
-Nd = nd * nd * nd
-
 N = 4
 mesh = create_box(
-  comm, ((0., 0., 0.), (1., 1., 1.)),
-  (N, N, N), cell_type=CellType.hexahedron, 
-  ghost_mode=GhostMode.none,
-  dtype=float_type
+    comm, ((0., 0., 0.), (1., 1., 1.)),
+    (N, N, N), cell_type=CellType.hexahedron, 
+    ghost_mode=GhostMode.none,
+    dtype=float_type
 )
 
 # Tensor product element
@@ -104,7 +101,7 @@ u_ = u0.x.array.copy()
 # -------------------- #
 
 scatter_rev = scatter_reverse(
-    comm, owners_data, ghosts_data, nghost, float_type
+    comm, owners_data, ghosts_data, nlocal, float_type
 )
 
 scatter_rev(u_)
@@ -116,7 +113,7 @@ print(f"REVERSE: {rank}: {np.allclose(u0.x.array, u_)}", flush=True)
 # -------------------- #
 
 scatter_fwd = scatter_forward(
-    comm, owners_data, ghosts_data, nghost, float_type
+    comm, owners_data, ghosts_data, nlocal, float_type
 )
 
 scatter_fwd(u_)
