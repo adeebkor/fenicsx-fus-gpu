@@ -54,7 +54,10 @@ def scatter_reverse(
 
         all_requests = []
 
-        send_buff[:] = buffer[N:][owners_idx]
+        # Pack
+        for i, idx in enumerate(owners_idx):
+            send_buff[i] = buffer[N:][idx]
+            
         for i, dest in enumerate(owners):
             begin = owners_offsets[i]
             end = owners_offsets[i + 1]
@@ -70,7 +73,8 @@ def scatter_reverse(
         MPI.Request.Waitall(all_requests)
 
         # Unpack
-        buffer[ghosts_idx] += recv_buff
+        for i, idx in enumerate(ghosts_idx):
+            buffer[idx] += recv_buff[i]
 
     return scatter
 
@@ -115,7 +119,10 @@ def scatter_forward(
 
         all_requests = []
 
-        send_buff[:] = buffer[ghosts_idx]
+        # Unpack
+        for i, idx in enumerate(ghosts_idx):
+            send_buff[i] = buffer[idx]
+        
         for i, dest in enumerate(ghosts):
             begin = ghosts_offsets[i]
             end = ghosts_offsets[i + 1]
@@ -131,6 +138,7 @@ def scatter_forward(
         MPI.Request.Waitall(all_requests)
 
         # Pack
-        buffer[N:][owners_idx] = recv_buff
+        for i, idx in enumerate(owners_idx):
+            buffer[N:][idx] = recv_buff[i]
     
     return scatter

@@ -31,7 +31,7 @@ family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 cell_type = mesh.basix_cell()
 
-basix_element = basix.create_element(family, cell_type, P, variant)  # doesn't work with tp element
+basix_element = basix.create_tp_element(family, cell_type, P, variant)  # doesn't work with tp element, why?
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Prepare data for scatterer
