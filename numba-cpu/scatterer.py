@@ -29,7 +29,7 @@ def scatter_reverse(
         other processes
     ghosts_data : degrees-of-freedom data that are owned by this process and 
         are ghosts in other processes 
-    N : number of ghosts in this processes
+    N : size of local array
     float_type : buffer's floating-point type
 
     Return
@@ -54,7 +54,7 @@ def scatter_reverse(
 
         all_requests = []
 
-        send_buff[:] = buffer[-N:][owners_idx]
+        send_buff[:] = buffer[N:][owners_idx]
         for i, dest in enumerate(owners):
             begin = owners_offsets[i]
             end = owners_offsets[i + 1]
@@ -90,7 +90,7 @@ def scatter_forward(
         other processes
     ghosts_data : degrees-of-freedom data that are owned by this process and 
         are ghosts in other processes 
-    N : number of ghosts in this processes
+    N : size of local array
     float_type : buffer's floating-point type
 
     Return
@@ -131,6 +131,6 @@ def scatter_forward(
         MPI.Request.Waitall(all_requests)
 
         # Pack
-        buffer[-N:][owners_idx] = recv_buff
+        buffer[N:][owners_idx] = recv_buff
     
     return scatter
