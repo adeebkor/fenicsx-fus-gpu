@@ -11,7 +11,26 @@ Copyright (C) 2024 Adeeb Arif Kor
 
 import numpy as np
 import numpy.typing as npt
+import numba
 from mpi4py import MPI
+
+
+@numba.njit(fastmath=True)
+def pack(in_, out_, index):
+    for i, idx in enumerate(index):
+        out_[i] = in_[idx]
+
+
+@numba.njit(fastmath=True)
+def unpack_rev(in_, out_, index):
+    for i, idx in enumerate(index):
+        out_[idx] += in_[i]
+
+
+@numba.njit(fastmath=True)
+def unpack_fwd(in_, out_, index):
+    for i, idx in enumerate(index):
+        out_[idx] = in_[i]
 
 
 def scatter_reverse(
@@ -55,8 +74,9 @@ def scatter_reverse(
         all_requests = []
 
         # Pack
-        for i, idx in enumerate(owners_idx):
-            send_buff[i] = buffer[N:][idx]
+        # for i, idx in enumerate(owners_idx):
+            # send_buff[i] = buffer[N:][idx]
+        pack(buffer[N:], send_buff, owners_idx)
             
         for i, dest in enumerate(owners):
             begin = owners_offsets[i]
@@ -73,8 +93,9 @@ def scatter_reverse(
         MPI.Request.Waitall(all_requests)
 
         # Unpack
-        for i, idx in enumerate(ghosts_idx):
-            buffer[idx] += recv_buff[i]
+        # for i, idx in enumerate(ghosts_idx):
+            # buffer[idx] += recv_buff[i]
+        unpack_rev(recv_buff, buffer, ghosts_idx)
 
     return scatter
 
@@ -119,9 +140,8 @@ def scatter_forward(
 
         all_requests = []
 
-        # Unpack
-        for i, idx in enumerate(ghosts_idx):
-            send_buff[i] = buffer[idx]
+        # Pack
+        pack(buffer, send_buff, ghosts_idx)
         
         for i, dest in enumerate(ghosts):
             begin = ghosts_offsets[i]
@@ -137,8 +157,7 @@ def scatter_forward(
 
         MPI.Request.Waitall(all_requests)
 
-        # Pack
-        for i, idx in enumerate(owners_idx):
-            buffer[N:][idx] = recv_buff[i]
+        # Unpack
+        unpack_fwd(recv_buff, buffer[N:], owners_idx)
     
     return scatter
