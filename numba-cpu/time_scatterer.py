@@ -99,7 +99,7 @@ u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
 u_ = u0.x.array.copy()
 
 # -------------------- #
-# Test scatter reverse #
+# Time scatter reverse #
 # -------------------- #
 
 # Numba
@@ -107,7 +107,10 @@ scatter_rev = scatter_reverse(
     comm, owners_data, ghosts_data, nlocal, float_type
 )
 
-timing_scatter_rev = np.empty(10)
+# Call once to jit compile function
+scatter_rev(u_)
+
+timing_scatter_rev = np.empty(50)
 for i in range(timing_scatter_rev.size):
     tic = perf_counter_ns()
     scatter_rev(u_)
@@ -135,3 +138,61 @@ print(
     f"Elapsed time (scatter reverse (DOLFINx)): "
     f"{timing_scatter_rev_dolfinx.mean():.7f} ± "
     f"{timing_scatter_rev_dolfinx.std():.7f} s")
+
+# Differences between the two implementations
+scatter_rev_diff = timing_scatter_rev.mean() \
+    / timing_scatter_rev_dolfinx.mean()
+print(
+    f"The DOLFINx implementation is {scatter_rev_diff} times faster",
+    "(scatter reverse)"
+)
+
+# -------------------- #
+# Time scatter forward #
+# -------------------- #
+
+# Numba
+scatter_fwd = scatter_forward(
+    comm, owners_data, ghosts_data, nlocal, float_type
+)
+
+# Call once to jit compile function
+scatter_fwd(u_)
+
+timing_scatter_fwd = np.empty(10)
+for i in range(timing_scatter_fwd.size):
+    tic = perf_counter_ns()
+    scatter_fwd(u_)
+    toc = perf_counter_ns()
+    timing_scatter_fwd[i] = toc - tic
+
+timing_scatter_fwd *= 1e-9
+
+print(
+    f"Elapsed time (scatter forward (Numba)): "
+    f"{timing_scatter_fwd.mean():.7f} ± "
+    f"{timing_scatter_fwd.std():.7f} s")
+
+# DOLFINx
+timing_scatter_fwd_dolfinx = np.empty(10)
+for i in range(timing_scatter_fwd_dolfinx.size):
+    tic = perf_counter_ns()
+    u0.x.scatter_forward()
+    toc = perf_counter_ns()
+    timing_scatter_fwd_dolfinx[i] = toc - tic
+
+timing_scatter_fwd_dolfinx *= 1e-9
+
+print(
+    f"Elapsed time (scatter forward (DOLFINx)): "
+    f"{timing_scatter_fwd_dolfinx.mean():.7f} ± "
+    f"{timing_scatter_fwd_dolfinx.std():.7f} s")
+
+# Differences between the two implementations
+scatter_fwd_diff = timing_scatter_fwd.mean() \
+    / timing_scatter_fwd_dolfinx.mean()
+print(
+    f"The DOLFINx implementation is {scatter_fwd_diff} times faster",
+    "(scatter forward)"
+)
+
