@@ -20,9 +20,10 @@ from precompute import (compute_scaled_jacobian_determinant,
                         compute_scaled_geometrical_factor,
                         compute_boundary_facets_scaled_jacobian_determinant)
 from operators import mass_operator, stiffness_operator
+from scatterer import scatter_forward, scatter_reverse
 from utils import facet_integration_domain
 
-float_type = np.float64
+float_type = np.float32
 
 if isinstance(float_type, np.float64):
     tol = 1e-12
@@ -46,9 +47,10 @@ nd = P + 1
 Nd = nd * nd * nd
 Nf = nd * nd
 
+comm = MPI.COMM_WORLD
 N = 16
 mesh = create_box(
-    MPI.COMM_WORLD, ((0., 0., 0.), (1., 1., 1.)),
+    comm, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, ghost_mode=GhostMode.none,
     dtype=float_type)
 
@@ -152,6 +154,71 @@ for i, (cell, local_facet) in enumerate(boundary_data):
 
 bfacet_constants = np.ones(bfacet_dofmap.shape[0], dtype=float_type)
 
+# -------------- #
+# Scatterer data #
+# -------------- #
+
+imap = V.dofmap.index_map
+
+# Compute ghosts data in this process that are owned by other processes
+nlocal = imap.size_local
+nghost = imap.num_ghosts
+owners = imap.owners
+unique_owners, owners_size = np.unique(owners, return_counts=True)
+owners_idx = np.argsort(owners)
+
+owners_offsets = np.cumsum(owners_size)
+owners_offsets = np.insert(owners_offsets, 0, 0)
+
+# Compute owned data by this process that are ghosts data in other process 
+shared_dofs = imap.index_to_dest_ranks()
+shared_ranks = np.unique(shared_dofs.array)
+
+ghosts = []
+for shared_rank in shared_ranks:
+    for dof in range(nlocal):
+        if shared_rank in shared_dofs.links(dof):
+            ghosts.append(shared_rank)
+
+ghosts = np.array(ghosts)
+unique_ghosts, ghosts_size = np.unique(ghosts, return_counts=True)
+ghosts_offsets = np.cumsum(ghosts_size)
+ghosts_offsets = np.insert(ghosts_offsets, 0, 0)
+
+# Communicate the ghost indices
+all_requests = []
+
+# Send
+send_buff_idx = np.zeros(np.sum(owners_size), dtype=np.int64)
+send_buff_idx[:] = imap.ghosts[owners_idx]
+for i, owner in enumerate(unique_owners):  # send to destination
+    begin = owners_offsets[i]
+    end = owners_offsets[i + 1]
+    reqs = comm.Isend(send_buff_idx[begin:end], dest=owner)
+    all_requests.append(reqs)
+
+# Receive
+recv_buff_idx = np.zeros(np.sum(ghosts_size), dtype=np.int64)
+for i, ghost in enumerate(unique_ghosts):  # receive from source
+    begin = ghosts_offsets[i]
+    end = ghosts_offsets[i + 1]
+    reqr = comm.Irecv(recv_buff_idx[begin:end], source=ghost)
+    all_requests.append(reqr)
+
+MPI.Request.Waitall(all_requests)
+
+ghosts_idx = recv_buff_idx - imap.local_range[0]
+
+owners_data = [owners_idx, owners_size, owners_offsets, unique_owners]
+ghosts_data = [ghosts_idx, ghosts_size, ghosts_offsets, unique_ghosts]
+
+scatter_rev = scatter_reverse(
+    comm, owners_data, ghosts_data, nlocal, float_type
+)
+scatter_fwd = scatter_forward(
+    comm, owners_data, ghosts_data, nlocal, float_type
+)
+
 # DOLFINx assembler for comparison
 md = {"quadrature_rule": "GLL", "quadrature_degree": Q[P]}
 v = TestFunction(V)
@@ -163,7 +230,7 @@ v = TestFunction(V)
 b[:] = 0.0
 mass_operator_cell = mass_operator(Nd, float_type)
 mass_operator_cell(u, cell_constants, b, detJ, dofmap)
-b0.x.scatter_reverse(InsertMode.add)
+scatter_rev(b)
 
 u0.x.array[:] = 1.0
 a0_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
@@ -200,7 +267,7 @@ u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
 b[:] = 0.0
 stiff_operator_cell = stiffness_operator(P, dphi_1D, float_type)
 stiff_operator_cell(u, cell_constants, b, G, dofmap)
-b0.x.scatter_reverse(InsertMode.add)
+scatter_rev(b)
 
 a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
                   dtype=float_type)
@@ -223,7 +290,7 @@ b[:] = 0.0
 u[:] = 1.0
 mass_operator_bfacet = mass_operator(Nf, float_type)
 mass_operator_bfacet(u, bfacet_constants, b, detJ_f, bfacet_dofmap)
-b0.x.scatter_reverse(InsertMode.add)
+scatter_rev(b)
 
 a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 b3_dolfinx = assemble_vector(a3_dolfinx)
