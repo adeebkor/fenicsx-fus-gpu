@@ -73,7 +73,7 @@ def stiffness_operator(P, float_type):
 
     n = P + 1
 
-    @cuda.jit
+    @cuda.jit(lineinfo=True)
     def operator(
         x: numba.types.Array,
         entity_constants: numba.types.Array,
