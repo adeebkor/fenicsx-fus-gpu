@@ -1,3 +1,10 @@
+#
+# .. _time_scatterer:
+#
+# Time the speed of the scatterers
+# =============================================================================
+# Copyright (C) 2024 Adeeb Arif Kor
+
 from time import perf_counter_ns
 
 import numpy as np

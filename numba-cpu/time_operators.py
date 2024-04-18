@@ -1,7 +1,7 @@
 #
 # .. _time_operators:
 #
-# Test the speed of the operators
+# Time the speed of the operators
 # =============================================================================
 # Copyright (C) 2024 Adeeb Arif Kor
 

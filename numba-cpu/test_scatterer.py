@@ -1,3 +1,11 @@
+#
+# .. _test_scatterer:
+#
+# Test whether the scatterers are working correctly by comparing the output
+# with DOLFINx.
+# =============================================================================
+# Copyright (C) 2024 Adeeb Arif Kor
+
 import numpy as np
 from mpi4py import MPI
 
