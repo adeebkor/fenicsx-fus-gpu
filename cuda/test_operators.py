@@ -188,7 +188,7 @@ b_d.copy_to_host(b)
 
 a0_dolfinx = form(inner(u0, v) * dx(metadata=md), dtype=float_type)
 b0_dolfinx = assemble_vector(a0_dolfinx)
-b0_dolfinx.scatter_reverse(InsertMode.add)
+# b0_dolfinx.scatter_reverse(InsertMode.add)
 
 # Check the difference between the vectors
 mass_difference = np.linalg.norm(
@@ -239,7 +239,7 @@ b_d.copy_to_host(b)
 a1_dolfinx = form(inner(grad(u0), grad(v)) * dx(metadata=md),
                   dtype=float_type)
 b1_dolfinx = assemble_vector(a1_dolfinx)
-b1_dolfinx.scatter_reverse(InsertMode.add)
+# b1_dolfinx.scatter_reverse(InsertMode.add)
 
 # Check the difference between the vectors
 stiffness_difference = np.linalg.norm(
@@ -275,7 +275,7 @@ b_d.copy_to_host(b)
 
 a3_dolfinx = form(inner(u0, v) * ds(metadata=md), dtype=float_type)
 b3_dolfinx = assemble_vector(a3_dolfinx)
-b3_dolfinx.scatter_reverse(InsertMode.add)
+# b3_dolfinx.scatter_reverse(InsertMode.add)
 
 # Check the difference between the vectors
 bfacet_difference = np.linalg.norm(
