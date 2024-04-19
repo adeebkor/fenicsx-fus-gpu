@@ -8,11 +8,34 @@ import numba.cuda as cuda
 from mpi4py import MPI
 
 
-# @cuda.jit
-# def pack(in_, out_, N):
-#     thread_id = cuda.threadIdx.x
-#     block_id = cuda.blockIdx.x
-#     idx = thread_id + block_id * cuda.blockDim.x
+@cuda.jit
+def pack(in_, out_, index):
+    thread_id = cuda.threadIdx.x
+    block_id = cuda.blockIdx.x
+    idx = thread_id + block_id * cuda.blockDim.x
+    
+    if idx < index.size:
+        out_[idx] = in_[index[idx]]
+
+
+@cuda.jit
+def unpack_rev(in_, out_, index):
+    thread_id = cuda.threadIdx.x
+    block_id = cuda.blockIdx.x
+    idx = thread_id + block_id * cuda.blockDim.x
+    
+    if idx < index.size:
+        cuda.atomic.add(out_, index[idx], in_[idx])
+
+
+@cuda.jit
+def unpack_rev(in_, out_, index):
+    thread_id = cuda.threadIdx.x
+    block_id = cuda.blockIdx.x
+    idx = thread_id + block_id * cuda.blockDim.x
+    
+    if idx < index.size:
+        out_[index[idx]] = in_[idx]
 
 
 def scatter_reverse(comm, owners_data, ghosts_data, N, float_type):
@@ -33,7 +56,12 @@ def scatter_reverse(comm, owners_data, ghosts_data, N, float_type):
 
         all_requests = []
 
-        # Pack code here!
+        # Set the number of threads in a block
+        threadsperblock = 128
+        numblocks = (owners.size + (threadsperblock - 1)) // threadsperblock
+
+        # Pack code
+
 
         for i, dest in enumerate(owners):
             begin = owners_offsets[i]

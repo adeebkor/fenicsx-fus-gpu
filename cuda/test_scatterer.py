@@ -26,10 +26,9 @@ if cuda.is_available():
     print("CUDA is available")
 
 cuda.detect()
-cuda.select_device(rank)
+# cuda.select_device(rank)
 
 print(f"{rank} : {cuda.get_current_device()}")
-exit()
 
 # Set float type
 float_type = np.float64
@@ -47,7 +46,7 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-N = 32
+N = 4
 mesh = create_box(
     comm, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, 
@@ -75,35 +74,6 @@ imap = V.dofmap.index_map
 
 if rank == 0:
     print(f"Number of degrees-of-freedom: {imap.size_global}")
-
-# Create function
-u0 = Function(V, dtype=float_type)  # Input function
-u = u0.x.array
-u[:] = 1.0
-b0 = Function(V, dtype=float_type)  # Output function
-b = b0.x.array
-b[:] = 0.0
-
-tdim = mesh.topology.dim
-gdim = mesh.geometry.dim
-num_cells = mesh.topology.index_map(tdim).size_local
-
-# Compute geometric data of cell entities
-pts, wts = basix.quadrature.make_quadrature(
-    basix.CellType.hexahedron, Q[P], basix.QuadratureType.gll)
-nq = wts.size
-
-gelement = basix.create_element(
-    basix.ElementFamily.P, mesh.basix_cell(), 1, dtype=float_type)
-gtable = gelement.tabulate(1, pts)
-dphi = gtable[1:, :, :, 0]
-
-# Compute scaled Jacobian determinant (cell)
-print("Computing scaled Jacobian determinant", flush=True)
-detJ = np.zeros((num_cells, nq), dtype=float_type)
-compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
-
-cell_constants = np.ones(dofmap.shape[0], dtype=float_type)
 
 # Compute ghosts data in this process that are owned by other processes
 nlocal = imap.size_local
@@ -133,15 +103,30 @@ ghosts_offsets = np.insert(ghosts_offsets, 0, 0)
 
 all_requests = []
 
+@cuda.jit
+def copy_range(in_, out_, begin, end):
+    thread_id = cuda.threadIdx.x
+    block_id = cuda.blockIdx.x
+    idx = thread_id + block_id * cuda.blockDim.x
+
+    if idx < end - begin:
+        out_[idx] = in_[idx + begin]
+    
+
 # Send
-send_buff_idx = np.zeros(np.sum(owners_size), dtype=np.int64)
-send_buff_idx[:] = imap.ghosts[owners_idx]
-send_buff_idx_d = cuda.to_device(send_buff_idx, )
+# send_buff_idx = np.zeros(np.sum(owners_size), dtype=np.int64)
+# send_buff_idx[:] = imap.ghosts[owners_idx]
+send_buff_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
 for i, owner in enumerate(unique_owners):
     begin = owners_offsets[i]
     end = owners_offsets[i + 1]
-    reqs = comm.Isend(send_buff_idx_d[begin:end], dest=owner)
-    all_requests.append(reqs)
+    send_buff_idx[i] = imap.ghosts[owners_idx[begin:end]]
+
+send_buff_idx_d = [cuda.to_device(send_buff) for send_buff in send_buff_idx]
+for i, owner in enumerate(unique_owners):
+    # reqs = comm.Isend(send_buff_idx_d[i], dest=owner)
+    print(type(send_buff_idx_d[i]))
+    # all_requests.append(reqs)
 
 # Receive
 recv_buff_idx = np.zeros(np.sum(ghosts_size), dtype=np.int64)
@@ -162,32 +147,22 @@ ghosts_idx_d = cuda.to_device(ghosts_idx)
 owners_data_d = [owners_idx_d, owners_size, owners_offsets, unique_owners]
 ghosts_data_d = [ghosts_idx_d, ghosts_size, ghosts_offsets, unique_ghosts]
 
+print(f"{rank}: {owners_size}")
+exit()
+
+# Define function for testing
+u0 = Function(V, dtype=float_type)
+u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
+               * np.sin(4*np.pi*x[2]))
+u_ = u0.x.array.copy()
+
 # -------------------- #
 # Test scatter reverse #
 # -------------------- #
 
-# Instantiate scatter reverse
 scatter_rev = scatter_reverse(
     comm, owners_data_d, ghosts_data_d, nlocal, float_type
 )
 
-# Set the number of threads in a block
-threadsperblock = 128
-numblocks = (dofmap.size + (threadsperblock - 1)) // threadsperblock
-
 # Allocate memory on the device
-detJ_d = cuda.to_device(detJ)
-cell_constants_d = cuda.to_device(cell_constants)
-dofmap_d = cuda.to_device(dofmap)
-u_d = cuda.to_device(u)
-b_d = cuda.to_device(b)
-
-# Cell the mass operator the first time to jit compile code
-mass_operator[numblocks, threadsperblock](u_d, cell_constants_d, b_d, detJ_d, dofmap_d)
-cuda.synchronize()
-
-# Testing scatterer
-for i in range(10):
-    mass_operator[numblocks, threadsperblock](u_d, cell_constants_d, b_d, detJ_d, dofmap_d)
-    scatter_rev(b_d)
-    cuda.synchronize()
+u_d = cuda.to_device(u_)
