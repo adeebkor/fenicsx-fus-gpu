@@ -94,6 +94,8 @@ for i, ghost in enumerate(unique_ghosts):  # receive from source
 MPI.Request.Waitall(all_requests)
 
 ghosts_idx = recv_buff_idx - imap.local_range[0]
+print(f"{rank} : {send_buff_idx} \n", flush=True)
+exit()
 
 owners_data = [owners_idx, owners_size, owners_offsets, unique_owners]
 ghosts_data = [ghosts_idx, ghosts_size, ghosts_offsets, unique_ghosts]

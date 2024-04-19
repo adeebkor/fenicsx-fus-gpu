@@ -74,8 +74,6 @@ def scatter_reverse(
         all_requests = []
 
         # Pack
-        # for i, idx in enumerate(owners_idx):
-            # send_buff[i] = buffer[N:][idx]
         pack(buffer[N:], send_buff, owners_idx)
             
         for i, dest in enumerate(owners):
@@ -93,8 +91,6 @@ def scatter_reverse(
         MPI.Request.Waitall(all_requests)
 
         # Unpack
-        # for i, idx in enumerate(ghosts_idx):
-            # buffer[idx] += recv_buff[i]
         unpack_rev(recv_buff, buffer, ghosts_idx)
 
     return scatter
