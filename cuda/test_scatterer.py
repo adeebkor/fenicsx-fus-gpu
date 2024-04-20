@@ -44,7 +44,7 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-N = 32
+N = 4
 mesh = create_box(
     comm, ((0., 0., 0.), (1., 1., 1.)),
     (N, N, N), cell_type=CellType.hexahedron, 
@@ -172,7 +172,21 @@ print(f"REVERSE: {rank}: {np.allclose(u0.x.array, u_)}", flush=True)
 # Test scatter forward #
 # -------------------- #
 
-# scatter_fwd = scatter_forward(
-#     comm, owners_data_d, ghosts_data_d, [nlocal, nghost], float_type
-# )
+scatter_fwd = scatter_forward(
+    comm, owners_data_d, ghosts_data_d, [nlocal, nghost], float_type
+)
 
+# Allocate memory on the device
+u_d = cuda.to_device(u_)
+
+# Scatter forward
+scatter_fwd(u_d)
+
+# Copy to host
+u_d.copy_to_host(u_)
+
+# Do scatter forward using DOLFINx
+u0.x.scatter_forward()
+
+# Check the difference between the vectors
+print(f"FORWARD: {rank}: {np.allclose(u0.x.array, u_)}", flush=True)
