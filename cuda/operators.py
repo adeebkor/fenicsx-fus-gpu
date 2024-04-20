@@ -1,3 +1,14 @@
+"""
+=========
+Operators
+=========
+
+This file contains the kernels for vector assembly. It includes the mass and
+stiffness kernels.
+
+Copyright (C) 2024 Adeeb Arif Kor
+"""
+
 import numpy as np
 import numba
 from numba import float32
@@ -73,7 +84,7 @@ def stiffness_operator(P, float_type):
 
     n = P + 1
 
-    @cuda.jit
+    @cuda.jit(lineinfo=True)
     def operator(
         x: numba.types.Array,
         entity_constants: numba.types.Array,
