@@ -1,6 +1,10 @@
-"""
-ADD DOC!
-"""
+#
+# .. _test_scatterer:
+#
+# Test whether the scatterers are working correctly by comparing the output
+# with DOLFINx.
+# =============================================================================
+# Copyright (C) 2024 Adeeb Arif Kor
 
 import numpy as np
 from mpi4py import MPI
@@ -136,8 +140,8 @@ ghosts_idx = [recv_buff - imap.local_range[0] for recv_buff in recv_buff_idx]
 
 ghosts_idx_d = [cuda.to_device(ghost_buff) for ghost_buff in ghosts_idx]
 
-owners_data_d = [owners_idx_d, owners_size, owners_offsets, unique_owners]
-ghosts_data_d = [ghosts_idx_d, ghosts_size, ghosts_offsets, unique_ghosts]
+owners_data_d = [owners_idx_d, owners_size, unique_owners]
+ghosts_data_d = [ghosts_idx_d, ghosts_size, unique_ghosts]
 
 # Define function for testing
 u0 = Function(V, dtype=float_type)
@@ -150,7 +154,7 @@ u_ = u0.x.array.copy()
 # -------------------- #
 
 scatter_rev = scatter_reverse(
-    comm, owners_data_d, ghosts_data_d, [nlocal, nghost], float_type
+    comm, owners_data_d, ghosts_data_d, nlocal, float_type
 )
 
 # Allocate memory on the device
@@ -173,7 +177,7 @@ print(f"REVERSE: {rank}: {np.allclose(u0.x.array, u_)}", flush=True)
 # -------------------- #
 
 scatter_fwd = scatter_forward(
-    comm, owners_data_d, ghosts_data_d, [nlocal, nghost], float_type
+    comm, owners_data_d, ghosts_data_d, nlocal, float_type
 )
 
 # Allocate memory on the device

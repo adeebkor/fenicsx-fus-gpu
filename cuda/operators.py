@@ -1,3 +1,14 @@
+"""
+=========
+Operators
+=========
+
+This file contains the kernels for vector assembly. It includes the mass and
+stiffness kernels.
+
+Copyright (C) 2024 Adeeb Arif Kor
+"""
+
 import numpy as np
 import numba
 from numba import float32

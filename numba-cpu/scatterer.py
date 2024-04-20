@@ -4,7 +4,7 @@ Scatterers
 ==========
 
 This file contains the kernels for MPI communication, namely the scattering
-operation. It includes the scatter reverse and scatter forward functions.
+operation. It includes the scatter reverse and scatter forward kernels.
 
 Copyright (C) 2024 Adeeb Arif Kor
 """
@@ -16,19 +16,52 @@ from mpi4py import MPI
 
 
 @numba.njit(fastmath=True)
-def pack(in_, out_, index):
+def pack(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
+         index: npt.NDArray[np.int64]):
+    """
+    Pack coefficient.
+
+    Parameters
+    ----------
+    in_ : input array
+    out_ : output array
+    index : indices of the input array to pack
+    """
+
     for i, idx in enumerate(index):
         out_[i] = in_[idx]
 
 
 @numba.njit(fastmath=True)
-def unpack_rev(in_, out_, index):
+def unpack_rev(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
+               index: npt.NDArray[np.int64]):
+    """
+    Unpack coefficient.
+
+    Parameters
+    ----------
+    in_ : input array
+    out_ : output array
+    index : indices of the output array to unpack
+    """
+
     for i, idx in enumerate(index):
         out_[idx] += in_[i]
 
 
 @numba.njit(fastmath=True)
-def unpack_fwd(in_, out_, index):
+def unpack_fwd(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
+               index: npt.NDArray[np.int64]):
+    """
+    Unpack coefficient.
+
+    Parameters
+    ----------
+    in_ : input array
+    out_ : output array
+    index : indices of the output array to unpack
+    """
+
     for i, idx in enumerate(index):
         out_[idx] = in_[i]
 
@@ -68,7 +101,7 @@ def scatter_reverse(
 
         Parameters
         ----------
-        buffer : arrays to perform scatter reverse
+        buffer : array to perform scatter reverse
         """
 
         all_requests = []
@@ -125,13 +158,13 @@ def scatter_forward(
     send_buff = np.zeros(np.sum(ghosts_size), dtype=float_type)
     recv_buff = np.zeros(np.sum(owners_size), dtype=float_type)
 
-    def scatter(buffer):
+    def scatter(buffer: npt.NDArray[np.floating]):
         """
         Perform the scatter forward operation of the buffer array.
 
         Parameters
         ----------
-        buffer : arrays to perform scatter forward
+        buffer : array to perform scatter forward
         """
 
         all_requests = []
