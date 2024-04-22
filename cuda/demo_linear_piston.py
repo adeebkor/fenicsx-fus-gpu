@@ -1,11 +1,10 @@
 #
 # Linear wave
 # - Benchmark 1 Source 2 from the benchmark paper.
-# =================================
+# ================================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
 import numpy as np
-import numba
 import numba.cuda as cuda
 from mpi4py import MPI
 
@@ -22,7 +21,7 @@ from precompute import (compute_scaled_jacobian_determinant,
                         compute_boundary_facets_scaled_jacobian_determinant)
 from operators import (mass_operator, stiffness_operator, axpy, copy, fill, 
                        pointwise_divide)
-from utils import facet_integration_domain, compute_eval_params
+from utils import facet_integration_domain
 
 float_type = np.float64
 

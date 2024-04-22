@@ -5,10 +5,8 @@
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
-import time
 
 import numpy as np
-import numba
 import numba.cuda as cuda
 from mpi4py import MPI
 

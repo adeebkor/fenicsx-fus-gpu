@@ -5,11 +5,9 @@
 # =================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
-import time
 
 import numpy as np
 import numpy.typing as npt
-import numba
 from mpi4py import MPI
 
 import basix

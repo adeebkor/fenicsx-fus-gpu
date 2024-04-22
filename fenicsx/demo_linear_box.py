@@ -8,14 +8,12 @@
 import time
 
 import numpy as np
-import numpy.typing as npt
-import numba
 from mpi4py import MPI
 
 import basix
 import basix.ufl
 from dolfinx import cpp, la
-from dolfinx.fem import assemble_scalar, assemble_vector, form, functionspace, Function
+from dolfinx.fem import assemble_vector, form, functionspace, Function
 from dolfinx.io import VTXWriter
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode, meshtags
 from ufl import dx, grad, inner, Measure, TestFunction

@@ -14,7 +14,6 @@ import numba.cuda as cuda
 import basix
 import basix.ufl
 from dolfinx.fem import assemble_vector, functionspace, form, Function
-from dolfinx.la import InsertMode
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
 from ufl import inner, grad, ds, dx, TestFunction
 
