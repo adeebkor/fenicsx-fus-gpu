@@ -56,15 +56,15 @@ def mass_operator(
     block_id = cuda.blockIdx.x  # Block ID (max: 2147483647)
     idx = thread_id + block_id * cuda.blockDim.x  # Global thread ID
 
-    facet = idx // entity_dofmap.shape[1]
+    entity = idx // entity_dofmap.shape[1]
     local_dof = idx % entity_dofmap.shape[1]
 
     if idx < entity_dofmap.size:
         # Compute the global DOF index
-        dof = entity_dofmap[facet, local_dof]
+        dof = entity_dofmap[entity, local_dof]
 
         # Compute the contribution of the current DOF to the mass operator
-        value = x[dof] * detJ_entity[facet, local_dof] * entity_constants[facet]
+        value = x[dof] * detJ_entity[entity, local_dof] * entity_constants[entity]
 
         # Atomically add the computed value to the output array `y`
         cuda.atomic.add(y, dof, value)
