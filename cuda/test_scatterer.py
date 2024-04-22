@@ -50,10 +50,12 @@ Q = {
 
 N = 4
 mesh = create_box(
-    comm, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, 
+    comm,
+    ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+    (N, N, N),
+    cell_type=CellType.hexahedron,
     ghost_mode=GhostMode.none,
-    dtype=float_type
+    dtype=float_type,
 )
 
 # Mesh geometry data
@@ -95,7 +97,7 @@ for i, owner in enumerate(unique_owners):
 
 owners_idx_d = [cuda.to_device(owner_idx) for owner_idx in owners_idx]
 
-# Compute owned data by this process that are ghosts data in other process 
+# Compute owned data by this process that are ghosts data in other process
 shared_dofs = imap.index_to_dest_ranks()
 shared_ranks = np.unique(shared_dofs.array)
 
@@ -145,17 +147,19 @@ ghosts_data_d = [ghosts_idx_d, ghosts_size, unique_ghosts]
 
 # Define function for testing
 u0 = Function(V, dtype=float_type)
-u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
-               * np.sin(4*np.pi*x[2]))
+u0.interpolate(
+    lambda x: 100
+    * np.sin(2 * np.pi * x[0])
+    * np.cos(3 * np.pi * x[1])
+    * np.sin(4 * np.pi * x[2])
+)
 u_ = u0.x.array.copy()
 
 # -------------------- #
 # Test scatter reverse #
 # -------------------- #
 
-scatter_rev = scatter_reverse(
-    comm, owners_data_d, ghosts_data_d, nlocal, float_type
-)
+scatter_rev = scatter_reverse(comm, owners_data_d, ghosts_data_d, nlocal, float_type)
 
 # Allocate memory on the device
 u_d = cuda.to_device(u_)
@@ -176,9 +180,7 @@ print(f"REVERSE: {rank}: {np.allclose(u0.x.array, u_)}", flush=True)
 # Test scatter forward #
 # -------------------- #
 
-scatter_fwd = scatter_forward(
-    comm, owners_data_d, ghosts_data_d, nlocal, float_type
-)
+scatter_fwd = scatter_forward(comm, owners_data_d, ghosts_data_d, nlocal, float_type)
 
 # Allocate memory on the device
 u_d = cuda.to_device(u_)

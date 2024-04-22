@@ -63,11 +63,11 @@ num_element = int(element_per_wavelength * num_of_waves)
 # Create mesh
 mesh = create_box(
     MPI.COMM_WORLD,
-    ((0., 0., 0.), (domain_length, domain_length, domain_length)),
+    ((0.0, 0.0, 0.0), (domain_length, domain_length, domain_length)),
     (num_element, num_element, num_element),
     cell_type=CellType.hexahedron,
     ghost_mode=GhostMode.none,
-    dtype=float_type
+    dtype=float_type,
 )
 
 # Mesh geometry data
@@ -85,9 +85,7 @@ family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 
 # Tensor product element
-basix_element_tp = basix.create_tp_element(
-    family, cell_type, basis_degree, variant
-)
+basix_element_tp = basix.create_tp_element(family, cell_type, basis_degree, variant)
 perm = np.argsort(np.array(basix_element_tp.dof_ordering, dtype=np.int32))
 element_tp = basix.ufl._BasixElement(basix_element_tp)
 
@@ -99,25 +97,27 @@ if MPI.COMM_WORLD.rank == 0:
     print(f"Number of degrees-of-freedom: {ndofs}", flush=True)
 
 # Basix element
-basix_element = basix.create_element(
-    family, cell_type, basis_degree, variant
-)
+basix_element = basix.create_element(family, cell_type, basis_degree, variant)
 element = basix.ufl._BasixElement(basix_element)
 
 V = functionspace(mesh, element)
 dofmap = V.dofmap.list[:, perm]
 
 # Create dummy input data
-G = np.random.randn(num_cells, nd*nd*nd, 3*(gdim-1)).astype(float_type)
+G = np.random.randn(num_cells, nd * nd * nd, 3 * (gdim - 1)).astype(float_type)
 cell_constants = np.random.randn(num_cells).astype(float_type)
 
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
-  basix.ElementFamily.P, basix.CellType.interval, basis_degree,
-  basix.LagrangeVariant.gll_warped, dtype=float_type)
+    basix.ElementFamily.P,
+    basix.CellType.interval,
+    basis_degree,
+    basix.LagrangeVariant.gll_warped,
+    dtype=float_type,
+)
 pts_1D, wts_1D = basix.quadrature.make_quadrature(
-    basix.CellType.interval, quadrature_degree[basis_degree],
-    basix.QuadratureType.gll)
+    basix.CellType.interval, quadrature_degree[basis_degree], basix.QuadratureType.gll
+)
 pts_1D, wts_1D = pts_1D.astype(float_type), wts_1D.astype(float_type)
 
 table_1D = element_1D.tabulate(1, pts_1D)
@@ -125,12 +125,20 @@ dphi_1D = table_1D[1, :, :, 0]
 
 # Create functions
 u0 = Function(V_tp, dtype=float_type)
-u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
-               * np.sin(4*np.pi*x[2]))
+u0.interpolate(
+    lambda x: 100
+    * np.sin(2 * np.pi * x[0])
+    * np.cos(3 * np.pi * x[1])
+    * np.sin(4 * np.pi * x[2])
+)
 
 u1 = Function(V, dtype=float_type)
-u1.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
-               * np.sin(4*np.pi*x[2]))
+u1.interpolate(
+    lambda x: 100
+    * np.sin(2 * np.pi * x[0])
+    * np.cos(3 * np.pi * x[1])
+    * np.sin(4 * np.pi * x[2])
+)
 
 u0_h = u0.x.array
 u1_h = u1.x.array
@@ -174,7 +182,8 @@ for rep in range(nreps):
     tic = perf_counter_ns()
     cuda.synchronize()
     stiff_operator_cell[num_blocks, threadsperblock](
-        u1_d, cell_constants_d, b1_d, G_d, dofmap_d, dphi_1D_d)
+        u1_d, cell_constants_d, b1_d, G_d, dofmap_d, dphi_1D_d
+    )
     cuda.synchronize()
     toc = perf_counter_ns()
     timing_stiffness[rep] = toc - tic
@@ -184,7 +193,8 @@ timing_stiffness *= 1e-9
 print(
     f"Elapsed time (basix ordering): "
     f"{timing_stiffness.mean():.7f} ± "
-    f"{timing_stiffness.std():.7f} s")
+    f"{timing_stiffness.std():.7f} s"
+)
 
 timing_stiffness_tp = np.empty(nreps)
 for rep in range(nreps):
@@ -193,7 +203,8 @@ for rep in range(nreps):
     tic = perf_counter_ns()
     cuda.synchronize()
     stiff_operator_cell[num_blocks, threadsperblock](
-        u0_d, cell_constants_d, b0_d, G_d, dofmap_tp_d, dphi_1D_d)
+        u0_d, cell_constants_d, b0_d, G_d, dofmap_tp_d, dphi_1D_d
+    )
     cuda.synchronize()
     toc = perf_counter_ns()
     timing_stiffness_tp[rep] = toc - tic
@@ -203,5 +214,5 @@ timing_stiffness_tp *= 1e-9
 print(
     f"Elapsed time (tensor product ordering): "
     f"{timing_stiffness_tp.mean():.7f} ± "
-    f"{timing_stiffness_tp.std():.7f} s")
-
+    f"{timing_stiffness_tp.std():.7f} s"
+)

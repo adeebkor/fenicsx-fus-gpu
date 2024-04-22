@@ -16,8 +16,11 @@ from mpi4py import MPI
 
 
 @numba.njit(fastmath=True)
-def pack(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
-         index: npt.NDArray[np.int64]):
+def pack(
+    in_: npt.NDArray[np.floating],
+    out_: npt.NDArray[np.floating],
+    index: npt.NDArray[np.int64],
+):
     """
     Pack coefficient.
 
@@ -33,8 +36,11 @@ def pack(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
 
 
 @numba.njit(fastmath=True)
-def unpack_rev(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
-               index: npt.NDArray[np.int64]):
+def unpack_rev(
+    in_: npt.NDArray[np.floating],
+    out_: npt.NDArray[np.floating],
+    index: npt.NDArray[np.int64],
+):
     """
     Unpack coefficient.
 
@@ -50,8 +56,11 @@ def unpack_rev(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
 
 
 @numba.njit(fastmath=True)
-def unpack_fwd(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
-               index: npt.NDArray[np.int64]):
+def unpack_fwd(
+    in_: npt.NDArray[np.floating],
+    out_: npt.NDArray[np.floating],
+    index: npt.NDArray[np.int64],
+):
     """
     Unpack coefficient.
 
@@ -67,9 +76,12 @@ def unpack_fwd(in_: npt.NDArray[np.floating], out_: npt.NDArray[np.floating],
 
 
 def scatter_reverse(
-        comm: MPI.Comm, owners_data: list, ghosts_data: list, N: int, 
-        float_type: np.dtype[np.floating]):
-
+    comm: MPI.Comm,
+    owners_data: list,
+    ghosts_data: list,
+    N: int,
+    float_type: np.dtype[np.floating],
+):
     """
     Outer function to capture the constant variables of the scatter reverse
     operation.
@@ -77,10 +89,10 @@ def scatter_reverse(
     Parameters
     ----------
     comm : MPI communicator
-    owners_data : degrees-of-freedom data in this process that are owned by 
+    owners_data : degrees-of-freedom data in this process that are owned by
         other processes
-    ghosts_data : degrees-of-freedom data that are owned by this process and 
-        are ghosts in other processes 
+    ghosts_data : degrees-of-freedom data that are owned by this process and
+        are ghosts in other processes
     N : size of local array
     float_type : buffer's floating-point type
 
@@ -88,7 +100,7 @@ def scatter_reverse(
     ------
     scatter : function
     """
-    
+
     owners_idx, owners_size, owners_offsets, owners = owners_data
     ghosts_idx, ghosts_size, ghosts_offsets, ghosts = ghosts_data
 
@@ -108,7 +120,7 @@ def scatter_reverse(
 
         # Pack
         pack(buffer[N:], send_buff, owners_idx)
-            
+
         for i, dest in enumerate(owners):
             begin = owners_offsets[i]
             end = owners_offsets[i + 1]
@@ -130,9 +142,12 @@ def scatter_reverse(
 
 
 def scatter_forward(
-        comm: MPI.Comm, owners_data: list, ghosts_data: list, N: int, 
-        float_type: np.dtype[np.floating]):
-    
+    comm: MPI.Comm,
+    owners_data: list,
+    ghosts_data: list,
+    N: int,
+    float_type: np.dtype[np.floating],
+):
     """
     Outer function to capture the constant variables of the scatter forward
     operation.
@@ -140,10 +155,10 @@ def scatter_forward(
     Parameters
     ----------
     comm : MPI communicator
-    owners_data : degrees-of-freedom data in this process that are owned by 
+    owners_data : degrees-of-freedom data in this process that are owned by
         other processes
-    ghosts_data : degrees-of-freedom data that are owned by this process and 
-        are ghosts in other processes 
+    ghosts_data : degrees-of-freedom data that are owned by this process and
+        are ghosts in other processes
     N : size of local array
     float_type : buffer's floating-point type
 
@@ -171,7 +186,7 @@ def scatter_forward(
 
         # Pack
         pack(buffer, send_buff, ghosts_idx)
-        
+
         for i, dest in enumerate(ghosts):
             begin = ghosts_offsets[i]
             end = ghosts_offsets[i + 1]
@@ -188,5 +203,5 @@ def scatter_forward(
 
         # Unpack
         unpack_fwd(recv_buff, buffer[N:], owners_idx)
-    
+
     return scatter

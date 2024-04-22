@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import numba
 
+
 def transpose(Na: int, Nb: int, Nc: int, offa: int, offb: int, offc: int):
     """
     Outer function to define compile-time constants of the transpose operator
@@ -43,8 +44,9 @@ def transpose(Na: int, Nb: int, Nc: int, offa: int, offb: int, offc: int):
             for b in range(Nb):
                 for c in range(Nc):
                     B[offa * a + offb * b + offc * c] = A[a * Nb * Nc + b * Nc + c]
-    
+
     return operator
+
 
 def contract(Nk: int, Na: int, Nb: int, Nc: int, bool: bool):
     """
@@ -57,14 +59,17 @@ def contract(Nk: int, Na: int, Nb: int, Nc: int, bool: bool):
     Nb : size of 2nd dimension of input tensor B
     Nc : size of 3rd dimension of input tensor B
     bool : if True, the input tensor A is transposed
-    
+
     """
 
     Nd = Nb * Nc
 
     @numba.njit(fastmath=True)
-    def operator(A: npt.NDArray[np.floating], B: npt.NDArray[np.floating],
-                 C: npt.NDArray[np.floating]):
+    def operator(
+        A: npt.NDArray[np.floating],
+        B: npt.NDArray[np.floating],
+        C: npt.NDArray[np.floating],
+    ):
         """
         Perform the tensor contraction between the input tensor A and B and store
         it in the output tensor C.

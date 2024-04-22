@@ -28,10 +28,12 @@ P = 4  # Basis function order
 
 N = 4
 mesh = create_box(
-    comm, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, 
+    comm,
+    ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+    (N, N, N),
+    cell_type=CellType.hexahedron,
     ghost_mode=GhostMode.none,
-    dtype=float_type
+    dtype=float_type,
 )
 
 # Tensor product element
@@ -56,7 +58,7 @@ owners_idx = np.argsort(owners)
 owners_offsets = np.cumsum(owners_size)
 owners_offsets = np.insert(owners_offsets, 0, 0)
 
-# Compute owned data by this process that are ghosts data in other process 
+# Compute owned data by this process that are ghosts data in other process
 shared_dofs = imap.index_to_dest_ranks()
 shared_ranks = np.unique(shared_dofs.array)
 
@@ -102,17 +104,19 @@ ghosts_data = [ghosts_idx, ghosts_size, ghosts_offsets, unique_ghosts]
 
 # Define function for testing
 u0 = Function(V, dtype=float_type)
-u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
-               * np.sin(4*np.pi*x[2]))
+u0.interpolate(
+    lambda x: 100
+    * np.sin(2 * np.pi * x[0])
+    * np.cos(3 * np.pi * x[1])
+    * np.sin(4 * np.pi * x[2])
+)
 u_ = u0.x.array.copy()
 
 # -------------------- #
 # Test scatter reverse #
 # -------------------- #
 
-scatter_rev = scatter_reverse(
-    comm, owners_data, ghosts_data, nlocal, float_type
-)
+scatter_rev = scatter_reverse(comm, owners_data, ghosts_data, nlocal, float_type)
 
 scatter_rev(u_)
 u0.x.scatter_reverse(InsertMode.add)
@@ -122,9 +126,7 @@ print(f"REVERSE: {rank}: {np.allclose(u0.x.array, u_)}", flush=True)
 # Test scatter forward #
 # -------------------- #
 
-scatter_fwd = scatter_forward(
-    comm, owners_data, ghosts_data, nlocal, float_type
-)
+scatter_fwd = scatter_forward(comm, owners_data, ghosts_data, nlocal, float_type)
 
 scatter_fwd(u_)
 u0.x.scatter_forward()

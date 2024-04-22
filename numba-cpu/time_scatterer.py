@@ -29,10 +29,12 @@ P = 4  # Basis function order
 
 N = 4
 mesh = create_box(
-    comm, ((0., 0., 0.), (1., 1., 1.)),
-    (N, N, N), cell_type=CellType.hexahedron, 
+    comm,
+    ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+    (N, N, N),
+    cell_type=CellType.hexahedron,
     ghost_mode=GhostMode.none,
-    dtype=float_type
+    dtype=float_type,
 )
 
 # Tensor product element
@@ -40,7 +42,9 @@ family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 cell_type = mesh.basix_cell()
 
-basix_element = basix.create_tp_element(family, cell_type, P, variant)  # doesn't work with tp element, why?
+basix_element = basix.create_tp_element(
+    family, cell_type, P, variant
+)  # doesn't work with tp element, why?
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Prepare data for scatterer
@@ -57,7 +61,7 @@ owners_idx = np.argsort(owners)
 owners_offsets = np.cumsum(owners_size)
 owners_offsets = np.insert(owners_offsets, 0, 0)
 
-# Compute owned data by this process that are ghosts data in other process 
+# Compute owned data by this process that are ghosts data in other process
 shared_dofs = imap.index_to_dest_ranks()
 shared_ranks = np.unique(shared_dofs.array)
 
@@ -101,8 +105,12 @@ ghosts_data = [ghosts_idx, ghosts_size, ghosts_offsets, unique_ghosts]
 
 # Define function for testing
 u0 = Function(V, dtype=float_type)
-u0.interpolate(lambda x: 100 * np.sin(2*np.pi*x[0]) * np.cos(3*np.pi*x[1])
-               * np.sin(4*np.pi*x[2]))
+u0.interpolate(
+    lambda x: 100
+    * np.sin(2 * np.pi * x[0])
+    * np.cos(3 * np.pi * x[1])
+    * np.sin(4 * np.pi * x[2])
+)
 u_ = u0.x.array.copy()
 
 # -------------------- #
@@ -110,9 +118,7 @@ u_ = u0.x.array.copy()
 # -------------------- #
 
 # Numba
-scatter_rev = scatter_reverse(
-    comm, owners_data, ghosts_data, nlocal, float_type
-)
+scatter_rev = scatter_reverse(comm, owners_data, ghosts_data, nlocal, float_type)
 
 # Call once to jit compile function
 scatter_rev(u_)
@@ -129,7 +135,8 @@ timing_scatter_rev *= 1e-9
 print(
     f"Elapsed time (scatter reverse (Numba)): "
     f"{timing_scatter_rev.mean():.7f} ± "
-    f"{timing_scatter_rev.std():.7f} s")
+    f"{timing_scatter_rev.std():.7f} s"
+)
 
 # DOLFINx
 timing_scatter_rev_dolfinx = np.empty(10)
@@ -144,14 +151,14 @@ timing_scatter_rev_dolfinx *= 1e-9
 print(
     f"Elapsed time (scatter reverse (DOLFINx)): "
     f"{timing_scatter_rev_dolfinx.mean():.7f} ± "
-    f"{timing_scatter_rev_dolfinx.std():.7f} s")
+    f"{timing_scatter_rev_dolfinx.std():.7f} s"
+)
 
 # Differences between the two implementations
-scatter_rev_diff = timing_scatter_rev.mean() \
-    / timing_scatter_rev_dolfinx.mean()
+scatter_rev_diff = timing_scatter_rev.mean() / timing_scatter_rev_dolfinx.mean()
 print(
     f"The DOLFINx implementation is {scatter_rev_diff} times faster",
-    "(scatter reverse)"
+    "(scatter reverse)",
 )
 
 # -------------------- #
@@ -159,9 +166,7 @@ print(
 # -------------------- #
 
 # Numba
-scatter_fwd = scatter_forward(
-    comm, owners_data, ghosts_data, nlocal, float_type
-)
+scatter_fwd = scatter_forward(comm, owners_data, ghosts_data, nlocal, float_type)
 
 # Call once to jit compile function
 scatter_fwd(u_)
@@ -178,7 +183,8 @@ timing_scatter_fwd *= 1e-9
 print(
     f"Elapsed time (scatter forward (Numba)): "
     f"{timing_scatter_fwd.mean():.7f} ± "
-    f"{timing_scatter_fwd.std():.7f} s")
+    f"{timing_scatter_fwd.std():.7f} s"
+)
 
 # DOLFINx
 timing_scatter_fwd_dolfinx = np.empty(10)
@@ -193,13 +199,12 @@ timing_scatter_fwd_dolfinx *= 1e-9
 print(
     f"Elapsed time (scatter forward (DOLFINx)): "
     f"{timing_scatter_fwd_dolfinx.mean():.7f} ± "
-    f"{timing_scatter_fwd_dolfinx.std():.7f} s")
-
-# Differences between the two implementations
-scatter_fwd_diff = timing_scatter_fwd.mean() \
-    / timing_scatter_fwd_dolfinx.mean()
-print(
-    f"The DOLFINx implementation is {scatter_fwd_diff} times faster",
-    "(scatter forward)"
+    f"{timing_scatter_fwd_dolfinx.std():.7f} s"
 )
 
+# Differences between the two implementations
+scatter_fwd_diff = timing_scatter_fwd.mean() / timing_scatter_fwd_dolfinx.mean()
+print(
+    f"The DOLFINx implementation is {scatter_fwd_diff} times faster",
+    "(scatter forward)",
+)

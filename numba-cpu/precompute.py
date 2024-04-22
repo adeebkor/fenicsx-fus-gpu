@@ -16,11 +16,11 @@ import numba
 
 @numba.njit(fastmath=True)
 def compute_boundary_facets_scaled_jacobian_determinant(
-        detJ_f: npt.NDArray[np.floating],
-        mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
-        boundary_data: npt.NDArray[np.int32],
-        dphi_f: npt.NDArray[np.floating],
-        weights: npt.NDArray[np.floating]
+    detJ_f: npt.NDArray[np.floating],
+    mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
+    boundary_data: npt.NDArray[np.int32],
+    dphi_f: npt.NDArray[np.floating],
+    weights: npt.NDArray[np.floating],
 ):
     """
     Compute the boundary facets Jacobian determinant and scaled it with the
@@ -75,11 +75,11 @@ def compute_boundary_facets_scaled_jacobian_determinant(
 
 @numba.njit(fastmath=True)
 def compute_scaled_jacobian_determinant(
-        detJ: npt.NDArray[np.floating],
-        mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
-        num_cell: int,
-        dphi: npt.NDArray[np.floating],
-        weights: npt.NDArray[np.floating],
+    detJ: npt.NDArray[np.floating],
+    mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
+    num_cell: int,
+    dphi: npt.NDArray[np.floating],
+    weights: npt.NDArray[np.floating],
 ):
     """
     Compute the determinant of the Jacobian and scaled it with the
@@ -114,11 +114,11 @@ def compute_scaled_jacobian_determinant(
 
 @numba.njit(fastmath=True)
 def compute_scaled_geometrical_factor(
-        G: npt.NDArray[np.floating],
-        mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
-        num_cell: int,
-        dphi: npt.NDArray[np.floating],
-        weights: npt.NDArray[np.floating],
+    G: npt.NDArray[np.floating],
+    mesh: tuple[npt.NDArray[np.int32], npt.NDArray[np.floating]],
+    num_cell: int,
+    dphi: npt.NDArray[np.floating],
+    weights: npt.NDArray[np.floating],
 ):
     """
     Compute the scaled geometrical factor given by

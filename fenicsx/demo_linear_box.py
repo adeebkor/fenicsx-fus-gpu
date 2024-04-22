@@ -15,14 +15,20 @@ import basix.ufl
 from dolfinx import cpp, la
 from dolfinx.fem import assemble_vector, form, functionspace, Function
 from dolfinx.io import VTXWriter
-from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode, meshtags
+from dolfinx.mesh import (
+    create_box,
+    locate_entities_boundary,
+    CellType,
+    GhostMode,
+    meshtags,
+)
 from ufl import dx, grad, inner, Measure, TestFunction
 
 float_type = np.float64
 
 # Source parameters
 source_frequency = 0.5e6
-source_amplitude = 60000.0 
+source_amplitude = 60000.0
 period = 1.0 / source_frequency
 angular_frequency = 2.0 * np.pi * source_frequency
 
@@ -55,19 +61,20 @@ num_element = int(2 * num_of_waves)
 # Create mesh
 mesh = create_box(
     MPI.COMM_WORLD,
-    ((0., 0., 0.), (domain_length, domain_length, domain_length)),
+    ((0.0, 0.0, 0.0), (domain_length, domain_length, domain_length)),
     (num_element, num_element, num_element),
     cell_type=CellType.hexahedron,
     ghost_mode=GhostMode.none,
-    dtype=float_type
+    dtype=float_type,
 )
 
 # Mesh data
 tdim = mesh.topology.dim
 gdim = mesh.geometry.dim
 num_cells = mesh.topology.index_map(tdim).size_local
-hmin = np.array([cpp.mesh.h(
-    mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()])
+hmin = np.array(
+    [cpp.mesh.h(mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()]
+)
 mesh_size = np.zeros(1)
 MPI.COMM_WORLD.Reduce(hmin, mesh_size, op=MPI.MIN, root=0)
 MPI.COMM_WORLD.Bcast(mesh_size, root=0)
@@ -97,21 +104,23 @@ rho0_ = rho0.x.array
 
 # Tag boundary facets
 boundary_facets1 = locate_entities_boundary(
-    mesh, mesh.topology.dim-1, lambda x: np.isclose(x[0], np.finfo(float).eps)
+    mesh, mesh.topology.dim - 1, lambda x: np.isclose(x[0], np.finfo(float).eps)
 )
 
 boundary_facets2 = locate_entities_boundary(
-    mesh, mesh.topology.dim-1, lambda x: np.isclose(x[0], domain_length)
+    mesh, mesh.topology.dim - 1, lambda x: np.isclose(x[0], domain_length)
 )
 
 marked_facets = np.hstack([boundary_facets1, boundary_facets2])
-marked_values = np.hstack([np.full_like(boundary_facets1, 1),
-                           np.full_like(boundary_facets2, 2)])
+marked_values = np.hstack(
+    [np.full_like(boundary_facets1, 1), np.full_like(boundary_facets2, 2)]
+)
 sorted_facets = np.argsort(marked_facets)
-facet_tag = meshtags(mesh, tdim-1, marked_facets[sorted_facets],
-                     marked_values[sorted_facets])
+facet_tag = meshtags(
+    mesh, tdim - 1, marked_facets[sorted_facets], marked_values[sorted_facets]
+)
 
-ds = Measure('ds', subdomain_data=facet_tag, domain=mesh)
+ds = Measure("ds", subdomain_data=facet_tag, domain=mesh)
 
 # Define finite element and function space
 family = basix.ElementFamily.P
@@ -132,21 +141,18 @@ u_n = Function(V)
 v_n = Function(V)
 
 # Quadrature parameters
-md = {"quadrature_rule": "GLL",
-      "quadrature_degree": quadrature_degree[basis_degree]}
+md = {"quadrature_rule": "GLL", "quadrature_degree": quadrature_degree[basis_degree]}
 
 # Define forms
 u.x.array[:] = 1.0
-a = form(
-    inner(u/rho0/c0/c0, v) * dx(metadata=md)
-)
+a = form(inner(u / rho0 / c0 / c0, v) * dx(metadata=md))
 m = assemble_vector(a)
 m.scatter_reverse(la.InsertMode.add)
 
 L = form(
-    - inner(1.0/rho0*grad(u_n), grad(v)) * dx(metadata=md)
-    + inner(1.0/rho0*g, v) * ds(1, metadata=md)
-    - inner(1.0/rho0/c0*v_n, v) * ds(2, metadata=md)
+    -inner(1.0 / rho0 * grad(u_n), grad(v)) * dx(metadata=md)
+    + inner(1.0 / rho0 * g, v) * ds(1, metadata=md)
+    - inner(1.0 / rho0 / c0 * v_n, v) * ds(2, metadata=md)
 )
 b = assemble_vector(L)
 b.scatter_reverse(la.InsertMode.add)
@@ -158,6 +164,7 @@ v_n.x.array[:] = 0.0
 # ------------------ #
 # RK slope functions #
 # ------------------ #
+
 
 def f(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     """
@@ -183,8 +190,13 @@ def f(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
         window = 1.0
 
     # Update boundary condition
-    g.x.array[:] = window * source_amplitude * angular_frequency / \
-        speed_of_sound * np.cos(angular_frequency * t)
+    g.x.array[:] = (
+        window
+        * source_amplitude
+        * angular_frequency
+        / speed_of_sound
+        * np.cos(angular_frequency * t)
+    )
 
     # Update fields
     u_n.x.array[:] = u.array[:]
@@ -200,6 +212,7 @@ def f(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
     # Solve
     result.array[:] = b.array[:] / m.array[:]
 
+
 # --------------- #
 # Solve using RK4 #
 # --------------- #
@@ -207,7 +220,7 @@ def f(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
 # Runge-Kutta data
 n_rk = 4
 a_runge = np.array([0.0, 0.5, 0.5, 1.0])
-b_runge = np.array([1.0/6.0, 1.0/3.0, 1.0/3.0, 1.0/6.0])
+b_runge = np.array([1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0])
 c_runge = np.array([0.0, 0.5, 0.5, 1.0])
 
 # Solution vectors at time step n
@@ -236,7 +249,7 @@ nstep = int((tf - ts) / dt) + 1
 t = start_time
 tic = time.time()
 while t < tf:
-    dt = min(dt, tf-t)
+    dt = min(dt, tf - t)
 
     # Store solution at start of time step
     u0.array[:] = u_.array[:]
@@ -265,7 +278,9 @@ while t < tf:
     step += 1
 
     if step % 10 == 0 and MPI.COMM_WORLD.rank == 0:
-        print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_.array[0]}", flush=True)
+        print(
+            f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_.array[0]}", flush=True
+        )
 
 u_.scatter_forward()
 v_.scatter_forward()

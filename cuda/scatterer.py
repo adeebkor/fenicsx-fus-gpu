@@ -16,8 +16,7 @@ from mpi4py import MPI
 
 
 @cuda.jit
-def pack_fwd(in_: numba.types.Array, out_: numba.types.Array, 
-             index: numba.types.Array):
+def pack_fwd(in_: numba.types.Array, out_: numba.types.Array, index: numba.types.Array):
     """
     Pack coefficient.
 
@@ -31,14 +30,15 @@ def pack_fwd(in_: numba.types.Array, out_: numba.types.Array,
     thread_id = cuda.threadIdx.x
     block_id = cuda.blockIdx.x
     idx = thread_id + block_id * cuda.blockDim.x
-    
+
     if idx < index.size:
         out_[idx] = in_[index[idx]]
 
 
 @cuda.jit
-def unpack_fwd(in_: numba.types.Array, out_: numba.types.Array, 
-               index: numba.types.Array, N: int):
+def unpack_fwd(
+    in_: numba.types.Array, out_: numba.types.Array, index: numba.types.Array, N: int
+):
     """
     Unpack coefficient.
 
@@ -52,14 +52,15 @@ def unpack_fwd(in_: numba.types.Array, out_: numba.types.Array,
     thread_id = cuda.threadIdx.x
     block_id = cuda.blockIdx.x
     idx = thread_id + block_id * cuda.blockDim.x
-    
+
     if idx < index.size:
         out_[index[idx] + N] = in_[idx]
 
 
 @cuda.jit
-def pack_rev(in_: numba.types.Array, out_: numba.types.Array, 
-             index: numba.types.Array, N: int):
+def pack_rev(
+    in_: numba.types.Array, out_: numba.types.Array, index: numba.types.Array, N: int
+):
     """
     Pack coefficient.
 
@@ -79,8 +80,9 @@ def pack_rev(in_: numba.types.Array, out_: numba.types.Array,
 
 
 @cuda.jit
-def unpack_rev(in_: numba.types.Array, out_: numba.types.Array, 
-               index: numba.types.Array):
+def unpack_rev(
+    in_: numba.types.Array, out_: numba.types.Array, index: numba.types.Array
+):
     """
     Unpack coefficient.
 
@@ -94,15 +96,18 @@ def unpack_rev(in_: numba.types.Array, out_: numba.types.Array,
     thread_id = cuda.threadIdx.x
     block_id = cuda.blockIdx.x
     idx = thread_id + block_id * cuda.blockDim.x
-    
+
     if idx < index.size:
         cuda.atomic.add(out_, index[idx], in_[idx])
 
 
 def scatter_reverse(
-        comm: MPI.Comm, owners_data: list, ghosts_data: list, N: int, 
-        float_type: np.dtype[np.floating]):
-
+    comm: MPI.Comm,
+    owners_data: list,
+    ghosts_data: list,
+    N: int,
+    float_type: np.dtype[np.floating],
+):
     """
     Outer function to capture the constant variables of the scatter reverse
     operation.
@@ -110,10 +115,10 @@ def scatter_reverse(
     Parameters
     ----------
     comm : MPI communicator
-    owners_data : degrees-of-freedom data in this process that are owned by 
+    owners_data : degrees-of-freedom data in this process that are owned by
         other processes
-    ghosts_data : degrees-of-freedom data that are owned by this process and 
-        are ghosts in other processes 
+    ghosts_data : degrees-of-freedom data that are owned by this process and
+        are ghosts in other processes
     N : size of local array
     float_type : buffer's floating-point type
 
@@ -125,8 +130,12 @@ def scatter_reverse(
     owners_idx, owners_size, owners = owners_data
     ghosts_idx, ghosts_size, ghosts = ghosts_data
 
-    send_buff = [cuda.device_array((owner_size,), dtype=float_type) for owner_size in owners_size]
-    recv_buff = [cuda.device_array((ghost_size,), dtype=float_type) for ghost_size in ghosts_size]
+    send_buff = [
+        cuda.device_array((owner_size,), dtype=float_type) for owner_size in owners_size
+    ]
+    recv_buff = [
+        cuda.device_array((ghost_size,), dtype=float_type) for ghost_size in ghosts_size
+    ]
 
     def scatter(buffer: numba.types.Array):
         """
@@ -174,9 +183,12 @@ def scatter_reverse(
 
 
 def scatter_forward(
-        comm: MPI.Comm, owners_data: list, ghosts_data: list, N: int, 
-        float_type: np.dtype[np.floating]):
-
+    comm: MPI.Comm,
+    owners_data: list,
+    ghosts_data: list,
+    N: int,
+    float_type: np.dtype[np.floating],
+):
     """
     Outer function to capture the constant variables of the scatter forward
     operation.
@@ -184,10 +196,10 @@ def scatter_forward(
     Parameters
     ----------
     comm : MPI communicator
-    owners_data : degrees-of-freedom data in this process that are owned by 
+    owners_data : degrees-of-freedom data in this process that are owned by
         other processes
-    ghosts_data : degrees-of-freedom data that are owned by this process and 
-        are ghosts in other processes 
+    ghosts_data : degrees-of-freedom data that are owned by this process and
+        are ghosts in other processes
     N : size of local array
     float_type : buffer's floating-point type
 
@@ -199,8 +211,12 @@ def scatter_forward(
     owners_idx, owners_size, owners = owners_data
     ghosts_idx, ghosts_size, ghosts = ghosts_data
 
-    send_buff = [cuda.device_array((ghost_size,), dtype=float_type) for ghost_size in ghosts_size]
-    recv_buff = [cuda.device_array((owner_size,), dtype=float_type) for owner_size in owners_size]
+    send_buff = [
+        cuda.device_array((ghost_size,), dtype=float_type) for ghost_size in ghosts_size
+    ]
+    recv_buff = [
+        cuda.device_array((owner_size,), dtype=float_type) for owner_size in owners_size
+    ]
 
     def scatter(buffer: numba.types.Array):
         """
@@ -242,6 +258,8 @@ def scatter_forward(
             for owner_size in owners_size
         ]
         for i, rb in enumerate(recv_buff):
-            unpack_fwd[numblocks_unpack[i], threadsperblock](rb, buffer, owners_idx[i], N)
+            unpack_fwd[numblocks_unpack[i], threadsperblock](
+                rb, buffer, owners_idx[i], N
+            )
 
     return scatter

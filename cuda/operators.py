@@ -72,7 +72,7 @@ def mass_operator(
 
 def stiffness_operator(P, float_type):
     """
-    Outer functions to define the compile-time constants for the stiffness 
+    Outer functions to define the compile-time constants for the stiffness
     operator.
 
     Parameters
@@ -91,13 +91,13 @@ def stiffness_operator(P, float_type):
         y: numba.types.Array,
         G_entity: numba.types.Array,
         entity_dofmap: numba.types.Array,
-        dphi : numba.types.Array,
+        dphi: numba.types.Array,
     ):
         """
         Compute the stiffness operator on some entities.
 
         This kernel computes the stiffness operator on a set of entities (cells or
-        facets) defined by the entity dofmap. The stiffness operator is applied to 
+        facets) defined by the entity dofmap. The stiffness operator is applied to
         the input array `x` and accumulates the result in the output array `y`.
 
         Parameters
@@ -120,14 +120,14 @@ def stiffness_operator(P, float_type):
         ty = cuda.threadIdx.y
         tz = cuda.threadIdx.z
 
-        thread_id = tx * cuda.blockDim.y * cuda.blockDim.z + ty * cuda.blockDim.z + tz 
+        thread_id = tx * cuda.blockDim.y * cuda.blockDim.z + ty * cuda.blockDim.z + tz
         block_id = cuda.blockIdx.x
 
         scratch = cuda.shared.array(shape=(n, n, n), dtype=float_type)
         scratchx = cuda.shared.array(shape=(n, n, n), dtype=float_type)
         scratchy = cuda.shared.array(shape=(n, n, n), dtype=float_type)
         scratchz = cuda.shared.array(shape=(n, n, n), dtype=float_type)
-    
+
         # Get dof index that this thread is computing
         dof = entity_dofmap[block_id, thread_id]
 
@@ -151,18 +151,18 @@ def stiffness_operator(P, float_type):
             val_z += dphi[tz, iz] * scratch[tx, ty, iz]
 
         # Apply transform
-        G0 = G_entity[block_id, thread_id, 0] 
-        G1 = G_entity[block_id, thread_id, 1] 
-        G2 = G_entity[block_id, thread_id, 2] 
-        G3 = G_entity[block_id, thread_id, 3] 
-        G4 = G_entity[block_id, thread_id, 4] 
+        G0 = G_entity[block_id, thread_id, 0]
+        G1 = G_entity[block_id, thread_id, 1]
+        G2 = G_entity[block_id, thread_id, 2]
+        G3 = G_entity[block_id, thread_id, 3]
+        G4 = G_entity[block_id, thread_id, 4]
         G5 = G_entity[block_id, thread_id, 5]
         coeff = entity_constants[block_id]
 
         fw0 = coeff * (G0 * val_x + G1 * val_y + G2 * val_z)
         fw1 = coeff * (G1 * val_x + G3 * val_y + G4 * val_z)
         fw2 = coeff * (G2 * val_x + G4 * val_y + G5 * val_z)
-        
+
         scratchx[tx, ty, tz] = fw0
         scratchy[tx, ty, tz] = fw1
         scratchz[tx, ty, tz] = fw2
@@ -206,7 +206,7 @@ def axpy(alpha: np.floating, x: numba.types.Array, y: numba.types.Array):
 
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
     if i < x.size:
-      y[i] = alpha*x[i] + y[i]
+        y[i] = alpha * x[i] + y[i]
 
 
 @cuda.jit
@@ -222,7 +222,7 @@ def copy(a: numba.types.Array, b: numba.types.Array):
 
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
     if i < a.size:
-      b[i] = a[i]
+        b[i] = a[i]
 
 
 @cuda.jit
@@ -242,8 +242,7 @@ def fill(alpha: np.floating, x: numba.types.Array):
 
 
 @cuda.jit
-def pointwise_divide(a: numba.types.Array, b: numba.types.Array,
-                     c: numba.types.Array):
+def pointwise_divide(a: numba.types.Array, b: numba.types.Array, c: numba.types.Array):
     """
     Pointwise divide: c = a / b
 
@@ -256,4 +255,4 @@ def pointwise_divide(a: numba.types.Array, b: numba.types.Array,
 
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
     if i < c.size:
-      c[i] = a[i] / b[i]
+        c[i] = a[i] / b[i]

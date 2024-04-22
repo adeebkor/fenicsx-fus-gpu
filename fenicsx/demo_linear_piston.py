@@ -41,16 +41,17 @@ with XDMFFile(MPI.COMM_WORLD, "../mesh.xdmf", "r") as fmesh:
     mesh = fmesh.read_mesh(name=f"{mesh_name}", ghost_mode=GhostMode.none)
     tdim = mesh.topology.dim
     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
-    mesh.topology.create_connectivity(tdim-1, tdim)
+    mesh.topology.create_connectivity(tdim - 1, tdim)
     mt_facet = fmesh.read_meshtags(mesh, name=f"{mesh_name}_facets")
 
 # Boundary facets
-ds = Measure('ds', subdomain_data=mt_facet, domain=mesh)
+ds = Measure("ds", subdomain_data=mt_facet, domain=mesh)
 
 # Mesh parameters
 num_cell = mesh.topology.index_map(tdim).size_local
-hmin = np.array([cpp.mesh.h(
-    mesh._cpp_object, tdim, np.arange(num_cell, dtype=np.int32)).min()])
+hmin = np.array(
+    [cpp.mesh.h(mesh._cpp_object, tdim, np.arange(num_cell, dtype=np.int32)).min()]
+)
 mesh_size = np.zeros(1)
 MPI.COMM_WORLD.Reduce(hmin, mesh_size, op=MPI.MIN, root=0)
 MPI.COMM_WORLD.Bcast(mesh_size, root=0)
@@ -69,7 +70,9 @@ time_step_size = CFL * mesh_size / (speed_of_sound * degree_of_basis**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-final_time = 20 * time_step_size  # domain_length / speed_of_sound + 8.0 / source_frequency
+final_time = (
+    20 * time_step_size
+)  # domain_length / speed_of_sound + 8.0 / source_frequency
 number_of_step = (final_time - start_time) / time_step_size + 1
 
 # Define finite element and function space
@@ -88,23 +91,19 @@ u_n = Function(V)
 v_n = Function(V)
 
 # Quadrature parameters
-qd = {"2": 3, "3": 4, "4": 6, "5": 8, "6": 10, "7": 12, "8": 14,
-      "9": 16, "10": 18}
-md = {"quadrature_rule": "GLL",
-      "quadrature_degree": qd[str(degree_of_basis)]}
+qd = {"2": 3, "3": 4, "4": 6, "5": 8, "6": 10, "7": 12, "8": 14, "9": 16, "10": 18}
+md = {"quadrature_rule": "GLL", "quadrature_degree": qd[str(degree_of_basis)]}
 
 # Define forms
 u.x.array[:] = 1.0
-a = form(
-    inner(u/rho0/c0/c0, v) * dx(metadata=md)
-)
+a = form(inner(u / rho0 / c0 / c0, v) * dx(metadata=md))
 m = assemble_vector(a)
 m.scatter_reverse(la.InsertMode.add)
 
 L = form(
-    - inner(1.0/rho0*grad(u_n), grad(v)) * dx(metadata=md)
-    + inner(1.0/rho0*g, v) * ds(1, metadata=md)
-    - inner(1.0/rho0/c0*v_n, v) * ds(2, metadata=md)
+    -inner(1.0 / rho0 * grad(u_n), grad(v)) * dx(metadata=md)
+    + inner(1.0 / rho0 * g, v) * ds(1, metadata=md)
+    - inner(1.0 / rho0 / c0 * v_n, v) * ds(2, metadata=md)
 )
 b = assemble_vector(L)
 b.scatter_reverse(la.InsertMode.add)
@@ -159,8 +158,13 @@ def f1(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
         window = 1.0
 
     # Update boundary condition
-    g.x.array[:] = window * source_amplitude * angular_frequency / \
-        speed_of_sound * np.cos(angular_frequency * t)
+    g.x.array[:] = (
+        window
+        * source_amplitude
+        * angular_frequency
+        / speed_of_sound
+        * np.cos(angular_frequency * t)
+    )
 
     # Update fields
     u_n.x.array[:] = u.array[:]
@@ -184,7 +188,7 @@ def f1(t: float, u: la.Vector, v: la.Vector, result: la.Vector):
 # Runge-Kutta data
 n_rk = 4
 a_runge = np.array([0.0, 0.5, 0.5, 1.0])
-b_runge = np.array([1.0/6.0, 1.0/3.0, 1.0/3.0, 1.0/6.0])
+b_runge = np.array([1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0])
 c_runge = np.array([0.0, 0.5, 0.5, 1.0])
 
 # Solution vectors at time step n
@@ -213,7 +217,7 @@ nstep = int((tf - ts) / dt) + 1
 t = start_time
 tic = time.time()
 while t < tf:
-    dt = min(dt, tf-t)
+    dt = min(dt, tf - t)
 
     # Store solution at start of time step
     u0.array[:] = u_.array[:]
@@ -262,4 +266,4 @@ print(f"Solve time per step: {elapsed/nstep}")
 print(u_n.x.array[:])
 
 # with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n, "bp4") as f:
-    # f.write(0.0)
+# f.write(0.0)

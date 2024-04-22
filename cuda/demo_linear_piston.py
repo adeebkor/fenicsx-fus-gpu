@@ -16,11 +16,19 @@ from dolfinx.fem import functionspace, Function
 from dolfinx.io import XDMFFile
 from dolfinx.mesh import GhostMode
 
-from precompute import (compute_scaled_jacobian_determinant,
-                        compute_scaled_geometrical_factor,
-                        compute_boundary_facets_scaled_jacobian_determinant)
-from operators import (mass_operator, stiffness_operator, axpy, copy, fill, 
-                       pointwise_divide)
+from precompute import (
+    compute_scaled_jacobian_determinant,
+    compute_scaled_geometrical_factor,
+    compute_boundary_facets_scaled_jacobian_determinant,
+)
+from operators import (
+    mass_operator,
+    stiffness_operator,
+    axpy,
+    copy,
+    fill,
+    pointwise_divide,
+)
 from utils import facet_integration_domain
 
 float_type = np.float64
@@ -61,14 +69,15 @@ with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "r") as fmesh:
     tdim = mesh.topology.dim
     gdim = mesh.geometry.dim
     mt_cell = fmesh.read_meshtags(mesh, name=f"{mesh_name}_cells")
-    mesh.topology.create_connectivity(tdim-1, tdim)
+    mesh.topology.create_connectivity(tdim - 1, tdim)
     mt_facet = fmesh.read_meshtags(mesh, name=f"{mesh_name}_facets")
 
 # Mesh parameters
 num_cells = mesh.topology.index_map(tdim).size_local
-hmin = np.array([cpp.mesh.h(
-    mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()],
-    dtype=float_type)
+hmin = np.array(
+    [cpp.mesh.h(mesh._cpp_object, tdim, np.arange(num_cells, dtype=np.int32)).min()],
+    dtype=float_type,
+)
 mesh_size = np.zeros(1, dtype=float_type)
 MPI.COMM_WORLD.Allreduce(hmin, mesh_size, op=MPI.MIN)
 
@@ -104,14 +113,11 @@ rho0_ = rho0.x.array
 family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 
-basix_element_tp = basix.create_tp_element(
-    family, cell_type, basis_degree, variant)
+basix_element_tp = basix.create_tp_element(family, cell_type, basis_degree, variant)
 perm = np.argsort(np.array(basix_element_tp.dof_ordering, dtype=np.int32))
 
 # Basix element
-basix_element = basix.create_element(
-    family, cell_type, basis_degree, variant
-)
+basix_element = basix.create_element(family, cell_type, basis_degree, variant)
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Define function space and functions
@@ -146,8 +152,7 @@ b = b_.array
 
 # Compute geometric data of cell entities
 pts, wts = basix.quadrature.make_quadrature(
-    basix.CellType.hexahedron, quadrature_degree[basis_degree],
-    basix.QuadratureType.gll
+    basix.CellType.hexahedron, quadrature_degree[basis_degree], basix.QuadratureType.gll
 )
 nq = wts.size
 
@@ -166,7 +171,7 @@ compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 if MPI.COMM_WORLD.rank == 0:
     print("Computing scaled geometrical factor", flush=True)
 
-G = np.zeros((num_cells, nq, (3*(gdim-1))), dtype=float_type)
+G = np.zeros((num_cells, nq, (3 * (gdim - 1))), dtype=float_type)
 compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
 
 # Compute geometric data of boundary facet entities
@@ -174,16 +179,20 @@ boundary_facets1 = mt_facet.indices[mt_facet.values == 1]
 boundary_facets2 = mt_facet.indices[mt_facet.values == 2]
 
 boundary_data1 = facet_integration_domain(
-    boundary_facets1, mesh)  # cells with boundary facets (source)
+    boundary_facets1, mesh
+)  # cells with boundary facets (source)
 boundary_data2 = facet_integration_domain(
-    boundary_facets2, mesh)  # cells with boundary facets (absorbing)
+    boundary_facets2, mesh
+)  # cells with boundary facets (absorbing)
 local_facet_dof = np.array(
-    basix_element_tp.entity_closure_dofs[2],
-    dtype=np.int32)  # local DOF on facets
+    basix_element_tp.entity_closure_dofs[2], dtype=np.int32
+)  # local DOF on facets
 
 pts_f, wts_f = basix.quadrature.make_quadrature(
-    basix.CellType.quadrilateral, quadrature_degree[basis_degree], 
-    basix.QuadratureType.gll)
+    basix.CellType.quadrilateral,
+    quadrature_degree[basis_degree],
+    basix.QuadratureType.gll,
+)
 nq_f = wts_f.size
 
 # Evaluation points on the facets of the reference hexahedron
@@ -211,7 +220,8 @@ if MPI.COMM_WORLD.rank == 0:
 
 detJ_f1 = np.zeros((boundary_data1.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
-    detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f)
+    detJ_f1, (x_dofs, x_g), boundary_data1, dphi_f, wts_f
+)
 
 # Compute scaled Jacobian determinant (absorbing facets)
 if MPI.COMM_WORLD.rank == 0:
@@ -219,25 +229,28 @@ if MPI.COMM_WORLD.rank == 0:
 
 detJ_f2 = np.zeros((boundary_data2.shape[0], nq_f), dtype=float_type)
 compute_boundary_facets_scaled_jacobian_determinant(
-    detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f)
+    detJ_f2, (x_dofs, x_g), boundary_data2, dphi_f, wts_f
+)
 
 # Create boundary facets dofmap (source)
 bfacet_dofmap1 = np.zeros(
-    (boundary_data1.shape[0], local_facet_dof.shape[1]), dtype=np.int32)
+    (boundary_data1.shape[0], local_facet_dof.shape[1]), dtype=np.int32
+)
 
 for i, (cell, local_facet) in enumerate(boundary_data1):
     bfacet_dofmap1[i, :] = dofmap[cell][local_facet_dof[local_facet]]
 
 # Create boundary facets dofmap (absorbing)
 bfacet_dofmap2 = np.zeros(
-    (boundary_data2.shape[0], local_facet_dof.shape[1]), dtype=np.int32)
+    (boundary_data2.shape[0], local_facet_dof.shape[1]), dtype=np.int32
+)
 
 for i, (cell, local_facet) in enumerate(boundary_data2):
     bfacet_dofmap2[i, :] = dofmap[cell][local_facet_dof[local_facet]]
 
 # Define material coefficients
 cell_coeff1 = 1.0 / rho0_ / c0_ / c0_
-cell_coeff2 = - 1.0 / rho0_
+cell_coeff2 = -1.0 / rho0_
 
 facet_coeff1 = np.zeros((bfacet_dofmap1.shape[0]), dtype=float_type)
 for i, (cell, local_facet) in enumerate(boundary_data1):
@@ -245,16 +258,15 @@ for i, (cell, local_facet) in enumerate(boundary_data1):
 
 facet_coeff2 = np.zeros((bfacet_dofmap2.shape[0]), dtype=float_type)
 for i, (cell, local_facet) in enumerate(boundary_data2):
-    facet_coeff2[i] = - 1.0 / rho0_[cell] / c0_[cell]
+    facet_coeff2[i] = -1.0 / rho0_[cell] / c0_[cell]
 
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
-    family, basix.CellType.interval, basis_degree,
-    variant, dtype=float_type)
+    family, basix.CellType.interval, basis_degree, variant, dtype=float_type
+)
 pts_1D, wts_1D = basix.quadrature.make_quadrature(
-    basix.CellType.interval, 
-    quadrature_degree[basis_degree], 
-    basix.QuadratureType.gll)
+    basix.CellType.interval, quadrature_degree[basis_degree], basix.QuadratureType.gll
+)
 pts_1D, wts_1D = pts_1D.astype(float_type), wts_1D.astype(float_type)
 
 table_1D = element_1D.tabulate(1, pts_1D)
@@ -302,9 +314,13 @@ num_blocks_f2 = (bfacet_dofmap2.size + (threadsperblock_m - 1)) // threadsperblo
 threadsperblock_s = (nd, nd, nd)
 num_blocks_s = num_cells
 
-mass_operator[num_blocks_m, threadsperblock_m](u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d)
+mass_operator[num_blocks_m, threadsperblock_m](
+    u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d
+)
 stiff_operator_cell = stiffness_operator(basis_degree, float_type)
-stiff_operator_cell[num_blocks_s, threadsperblock_s](u_t_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
+stiff_operator_cell[num_blocks_s, threadsperblock_s](
+    u_t_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d
+)
 
 threadsperblock_dofs = 1024
 num_blocks_dofs = (ndofs + (threadsperblock_dofs - 1)) // threadsperblock_dofs
@@ -321,7 +337,9 @@ pointwise_divide[num_blocks_dofs, threadsperblock_dofs](m_d, b_d, u_t_d)
 fill[num_blocks_dofs, threadsperblock_dofs](1.0, u_t_d)
 
 fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
-mass_operator[num_blocks_m, threadsperblock_m](u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d)
+mass_operator[num_blocks_m, threadsperblock_m](
+    u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d
+)
 
 # ---------------------- #
 # Set initial conditions #
@@ -337,7 +355,7 @@ fill[num_blocks_dofs, threadsperblock_dofs](0.0, v_n_d)
 # Runge-Kutta data
 n_rk = 4
 a_runge = np.array([0.0, 0.5, 0.5, 1.0])
-b_runge = np.array([1.0/6.0, 1.0/3.0, 1.0/3.0, 1.0/6.0])
+b_runge = np.array([1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0])
 c_runge = np.array([0.0, 0.5, 0.5, 1.0])
 
 # Solution vector at time step
@@ -381,7 +399,7 @@ if MPI.COMM_WORLD.rank == 0:
 t_solve = Timer("Solve!")
 t_solve.start()
 while t < tf:
-    dt = min(dt, tf-t)
+    dt = min(dt, tf - t)
 
     # Store solution at start of time step
     copy[num_blocks_dofs, threadsperblock_dofs](u_d, u0_d)
@@ -392,8 +410,8 @@ while t < tf:
         copy[num_blocks_dofs, threadsperblock_dofs](u0_d, un_d)
         copy[num_blocks_dofs, threadsperblock_dofs](v0_d, vn_d)
 
-        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, ku_d, un_d)
-        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i]*dt, kv_d, vn_d)
+        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i] * dt, ku_d, un_d)
+        axpy[num_blocks_dofs, threadsperblock_dofs](a_runge[i] * dt, kv_d, vn_d)
 
         tn = t + c_runge[i] * dt
 
@@ -417,8 +435,13 @@ while t < tf:
             window = 1.0
 
         # Update source function
-        g_vals = window * source_amplitude * angular_frequency / \
-            speed_of_sound * np.cos(angular_frequency * t)
+        g_vals = (
+            window
+            * source_amplitude
+            * angular_frequency
+            / speed_of_sound
+            * np.cos(angular_frequency * t)
+        )
         fill[num_blocks_dofs, threadsperblock_dofs](g_vals, g_d)
 
         # Update fields
@@ -428,10 +451,16 @@ while t < tf:
         # Assemble RHS
         fill[num_blocks_dofs, threadsperblock_dofs](0.0, b_d)
 
-        stiff_operator_cell[num_blocks_s, threadsperblock_s](u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d)
-        mass_operator[num_blocks_f1, threadsperblock_m](g_d, facet_coeff1_d, b_d, detJ_f1_d, bfacet_dofmap1_d)
-        mass_operator[num_blocks_f2, threadsperblock_m](v_n_d, facet_coeff2_d, b_d, detJ_f2_d, bfacet_dofmap2_d)
-            
+        stiff_operator_cell[num_blocks_s, threadsperblock_s](
+            u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d
+        )
+        mass_operator[num_blocks_f1, threadsperblock_m](
+            g_d, facet_coeff1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
+        )
+        mass_operator[num_blocks_f2, threadsperblock_m](
+            v_n_d, facet_coeff2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
+        )
+
         # Solve
         pointwise_divide[num_blocks_dofs, threadsperblock_dofs](b_d, m_d, kv_d)
 
@@ -439,9 +468,9 @@ while t < tf:
         # Update solution #
         # --------------- #
 
-        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, ku_d, u_d)
-        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i]*dt, kv_d, v_d)
-        
+        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i] * dt, ku_d, u_d)
+        axpy[num_blocks_dofs, threadsperblock_dofs](b_runge[i] * dt, kv_d, v_d)
+
     # Update time
     t += dt
     step += 1
@@ -449,7 +478,7 @@ while t < tf:
     if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
-u_n_d.copy_to_host(u_n) 
+u_n_d.copy_to_host(u_n)
 v_n_d.copy_to_host(v_n)
 t_solve.stop()
 
