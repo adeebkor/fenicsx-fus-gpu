@@ -36,6 +36,9 @@ if cuda.is_available():
     print("CUDA is available")
 
 cuda.detect()
+cuda.select_device(rank)
+
+print(f"{rank} : {cuda.get_current_device()}")
 
 float_type = np.float64
 
