@@ -40,7 +40,7 @@ def facet_integration_domain(facets: npt.NDArray[np.int32], mesh: Mesh):
     return boundary_data
 
 
-def compute_eval_params(mesh, points):
+def compute_eval_params(mesh, points, float_type):
     """
     Compute the parameters required for dolfinx.Function eval
 
@@ -75,7 +75,7 @@ def compute_eval_params(mesh, points):
             points_on_proc.append(point)
             cells.append(cell_collisions.links(i)[0])
 
-    points_on_proc = np.array(points_on_proc)
+    points_on_proc = np.array(points_on_proc, dtype=float_type)
 
     return points_on_proc, cells
 

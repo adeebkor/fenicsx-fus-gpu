@@ -122,11 +122,11 @@ rho0_ = rho0.x.array
 family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 
-basix_element_tp = basix.create_tp_element(family, cell_type, basis_degree, variant)
+basix_element_tp = basix.create_tp_element(family, cell_type, basis_degree, variant, dtype=float_type)
 perm = np.argsort(np.array(basix_element_tp.dof_ordering, dtype=np.int32))
 
 # Basix element
-basix_element = basix.create_element(family, cell_type, basis_degree, variant)
+basix_element = basix.create_element(family, cell_type, basis_degree, variant, dtype=float_type)
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Define function space and functions
@@ -265,7 +265,7 @@ for i, (cell, local_facet) in enumerate(boundary_data2):
 
 # Define material coefficients
 cell_coeff1 = 1.0 / rho0_ / c0_ / c0_
-cell_coeff2 = -1.0 / rho0_
+cell_coeff2 = - 1.0 / rho0_
 
 facet_coeff1 = np.zeros((bfacet_dofmap1.shape[0]), dtype=float_type)
 for i, (cell, local_facet) in enumerate(boundary_data1):
@@ -273,7 +273,7 @@ for i, (cell, local_facet) in enumerate(boundary_data1):
 
 facet_coeff2 = np.zeros((bfacet_dofmap2.shape[0]), dtype=float_type)
 for i, (cell, local_facet) in enumerate(boundary_data2):
-    facet_coeff2[i] = -1.0 / rho0_[cell] / c0_[cell]
+    facet_coeff2[i] = - 1.0 / rho0_[cell] / c0_[cell]
 
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
