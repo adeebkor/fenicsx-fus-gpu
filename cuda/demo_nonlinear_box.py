@@ -354,6 +354,7 @@ detJ_f2_d = cuda.to_device(detJ_f2)
 # Arrays
 u_t_d = cuda.to_device(u_t)
 g_d = cuda.to_device(g)
+dg_d = cuda.to_device(dg)
 u_n_d = cuda.to_device(u_n)
 v_n_d = cuda.to_device(v_n)
 w_n_d = cuda.to_device(w_n)
@@ -556,7 +557,7 @@ while t < tf:
         mass_operator[num_blocks_f2, threadsperblock_m](
             v_n_d, facet_coeff2_2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
         )
-        stiffness_operator_cell[num_blocks_s, threadsperblock_s](
+        stiff_operator_cell[num_blocks_s, threadsperblock_s](
             v_n_d, cell_coeff4_d, b_d, G_d, dofmap_d, dphi_1D_d
         )
         mass_operator[num_blocks_f1, threadsperblock_m](
@@ -590,3 +591,10 @@ t_solve.stop()
 if MPI.COMM_WORLD.rank == 0:
     print(f"Solve time: {t_solve.elapsed()[0]}")
     print(f"Solve time per step: {t_solve.elapsed()[0]/nstep}")
+
+# --------------------- #
+# Output final solution #
+# --------------------- #
+
+with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
+    f.write(0.0)
