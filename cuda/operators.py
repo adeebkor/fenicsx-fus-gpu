@@ -256,3 +256,20 @@ def pointwise_divide(a: numba.types.Array, b: numba.types.Array, c: numba.types.
     i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
     if i < c.size:
         c[i] = a[i] / b[i]
+
+
+@cuda.jit
+def square(a: numba.types.Array, b: numba.types.Array):
+    """
+    Square the entries of vector a and store in vector b
+
+    Parameters
+    ----------
+    a : input vector
+    b : output vector
+    """
+
+    i = cuda.threadIdx.x + cuda.blockDim.x * cuda.blockIdx.x
+    if i < a.size:
+        b[i] = a[i] * a[i]
+
