@@ -155,13 +155,10 @@ except:
 
 num_step_per_period = step_per_period + 2
 step_period = 0
-print(num_step_per_period)
-exit()
 # -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
-
 c0 = Function(V_DG, dtype=float_type)
 c0.x.array[:] = speed_of_sound
 c0_ = c0.x.array
