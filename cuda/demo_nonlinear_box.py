@@ -13,7 +13,7 @@ from mpi4py import MPI
 import basix
 import basix.ufl
 from dolfinx import cpp, la
-from dolfinx.common import list_timings, Reduction, Timer, TimingType
+from dolfinx.common import Timer
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import VTXWriter
 from dolfinx.mesh import create_box, locate_entities_boundary, CellType, GhostMode
@@ -32,8 +32,15 @@ from operators import (
     pointwise_divide,
     square,
 )
-from scatterer import scatter_forward, scatter_reverse
-from utils import facet_integration_domain, compute_diffusivity_of_sound
+from scatterer import (
+    scatter_forward,
+    scatter_reverse,
+)
+from utils import (
+    facet_integration_domain,
+    compute_eval_params,
+    compute_diffusivity_of_sound,
+)
 
 # MPI
 comm = MPI.COMM_WORLD
@@ -41,7 +48,7 @@ rank = comm.rank
 
 # Check if CUDA is available
 if cuda.is_available():
-    print("CUDA is available")
+    print("CUDA is available", flush=True)
 
 cuda.detect()
 cuda.select_device(rank)
@@ -51,14 +58,14 @@ print(f"{rank} : {cuda.get_current_device()}")
 float_type = np.float64
 
 # Source parameters
-source_frequency = 0.5e6
-source_amplitude = 60000.0
-period = 1.0 / source_frequency
-angular_frequency = 2.0 * np.pi * source_frequency
+source_frequency = 0.5e6  # Hz
+source_amplitude = 60000.0  # Pa
+period = 1.0 / source_frequency  # s
+angular_frequency = 2.0 * np.pi * source_frequency  # rad/s
 
 # Material parameters
-speed_of_sound = 1500.0
-density = 1000
+speed_of_sound = 1500.0  # m/s
+density = 1000  # kg/m^3
 nonlinear_coefficient = 100.0
 attenuation_coefficient_dB = 50
 attenuation_coefficient_Np = attenuation_coefficient_dB / 20 * np.log(10)
@@ -67,7 +74,7 @@ diffusivity_of_sound = compute_diffusivity_of_sound(
 )
 
 # Domain parameters
-domain_length = 0.12
+domain_length = 0.12  # m
 
 # FE parameters
 basis_degree = 4
@@ -92,7 +99,7 @@ num_element = int(2 * num_of_waves)
 
 # Create mesh
 mesh = create_box(
-    MPI.COMM_WORLD,
+    comm,
     ((0.0, 0.0, 0.0), (domain_length, domain_length, domain_length)),
     (num_element, num_element, num_element),
     cell_type=CellType.hexahedron,
@@ -109,7 +116,7 @@ hmin = np.array(
     dtype=float_type,
 )
 mesh_size = np.zeros(1, dtype=float_type)
-MPI.COMM_WORLD.Allreduce(hmin, mesh_size, op=MPI.MIN)
+comm.Allreduce(hmin, mesh_size, op=MPI.MIN)
 
 # Mesh geometry data
 x_dofs = mesh.geometry.dofmap
@@ -123,10 +130,35 @@ step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
 final_time = domain_length / speed_of_sound + 2.0 / source_frequency
-number_of_step = (final_time - start_time) / time_step_size + 1
+number_of_step = int((final_time - start_time) / time_step_size) + 1
 
 if rank == 0:
-    print(f"Number of steps: {int(number_of_step)}", flush=True)
+    print(f"Number of steps: {number_of_step}", flush=True)
+
+# -----------------------------------------------------------------------------
+# Evaluation parameters
+npts_x = 100
+npts_y = 100
+
+x_p = np.linspace(0, domain_length, npts_x, dtype=float_type)
+y_p = np.linspace(0, domain_length, npts_y, dtype=float_type)
+
+X_p, Y_p = np.meshgrid(x_p, y_p)
+
+points = np.zeros((3, npts_x*npts_y), dtype=float_type)
+points[0] = X_p.flatten()
+points[1] = Y_p.flatten()
+
+x_eval, cell_eval = compute_eval_params(mesh, points, float_type)
+
+data = np.zeros_like(x_eval, dtype=float_type)
+
+try:
+    data[:, 0] = x_eval[:, 0]
+    data[:, 1] = x_eval[:, 1]
+except:
+    pass
+# -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
@@ -161,10 +193,88 @@ element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 # Define function space and functions
 V = functionspace(mesh, element)
 dofmap = V.dofmap.list[:, perm]
-ndofs = V.dofmap.index_map.size_local
+imap = V.dofmap.index_map
 
 if rank == 0:
-    print(f"Number of degrees-of-freedom: {ndofs}")
+    print(f"Number of degrees-of-freedom: {imap.size_global}")
+
+# ------------ #
+# Scatter data #
+# ------------ #
+
+if rank == 0:
+    print("Computing scatterer data", flush=True)
+
+# Compute ghosts data in this process that are owned by other processes
+nlocal = imap.size_local
+nghost = imap.num_ghosts
+ndofs = nlocal + nghost
+owners = imap.owners
+unique_owners, owners_size = np.unique(owners, return_counts=True)
+owners_argsorted = np.argsort(owners)
+
+owners_offsets = np.cumsum(owners_size)
+owners_offsets = np.insert(owners_offsets, 0, 0)
+
+owners_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
+for i, owner in enumerate(unique_owners):
+    begin = owners_offsets[i]
+    end = owners_offsets[i + 1]
+    owners_idx[i] = owners_argsorted[begin:end]
+
+owners_idx_d = [cuda.to_device(owner_idx) for owner_idx in owners_idx]
+
+# Compute owned data by this process that are ghosts data in other process
+shared_dofs = imap.index_to_dest_ranks()
+shared_ranks = np.unique(shared_dofs.array)
+
+ghosts = []
+for shared_rank in shared_ranks:
+    for dof in range(nlocal):
+        if shared_rank in shared_dofs.links(dof):
+            ghosts.append(shared_rank)
+
+ghosts = np.array(ghosts)
+unique_ghosts, ghosts_size = np.unique(ghosts, return_counts=True)
+ghosts_offsets = np.cumsum(ghosts_size)
+ghosts_offsets = np.insert(ghosts_offsets, 0, 0)
+
+all_requests = []
+
+# Send
+send_buff_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
+for i, owner in enumerate(unique_owners):
+    begin = owners_offsets[i]
+    end = owners_offsets[i + 1]
+    send_buff_idx[i] = imap.ghosts[owners_argsorted[begin:end]]
+
+send_buff_idx_d = [cuda.to_device(send_buff) for send_buff in send_buff_idx]
+for i, owner in enumerate(unique_owners):
+    reqs = comm.Isend(send_buff_idx_d[i], dest=owner)
+    all_requests.append(reqs)
+
+# Receive
+recv_buff_idx = [np.zeros(size, dtype=np.int64) for size in ghosts_size]
+recv_buff_idx_d = [cuda.to_device(recv_buff) for recv_buff in recv_buff_idx]
+for i, ghost in enumerate(unique_ghosts):
+    reqr = comm.Irecv(recv_buff_idx_d[i], source=ghost)
+    all_requests.append(reqr)
+
+MPI.Request.Waitall(all_requests)
+
+for i, ghosts in enumerate(unique_ghosts):
+    recv_buff_idx[i] = recv_buff_idx_d[i].copy_to_host()
+
+ghosts_idx = [recv_buff - imap.local_range[0] for recv_buff in recv_buff_idx]
+
+ghosts_idx_d = [cuda.to_device(ghost_buff) for ghost_buff in ghosts_idx]
+
+owners_data_d = [owners_idx_d, owners_size, unique_owners]
+ghosts_data_d = [ghosts_idx_d, ghosts_size, unique_ghosts]
+
+# Instantiate scatterer
+scatter_rev = scatter_reverse(comm, owners_data_d, ghosts_data_d, nlocal, float_type)
+scatter_fwd = scatter_forward(comm, owners_data_d, ghosts_data_d, nlocal, float_type)
 
 # Define functions
 u_t_ = Function(V, dtype=float_type)
@@ -191,7 +301,7 @@ m = m_.array
 m0 = m.copy()
 b = b_.array
 
-# Compute geometric data of cell centities
+# Compute geometric data of cell entities
 pts, wts = basix.quadrature.make_quadrature(
     basix.CellType.hexahedron, quadrature_degree[basis_degree], basix.QuadratureType.gll
 )
@@ -398,14 +508,16 @@ pointwise_divide[num_blocks_dofs, threadsperblock_dofs](m_d, b_d, u_t_d)
 # ------------------------- #
 
 fill[num_blocks_dofs, threadsperblock_dofs](1.0, u_t_d)
-fill[num_blocks_dofs, threadsperblock_dofs](0.0, m0_d)
 
+fill[num_blocks_dofs, threadsperblock_dofs](0.0, m0_d)
 mass_operator[num_blocks_m, threadsperblock_m](
     u_t_d, cell_coeff1_d, m0_d, detJ_d, dofmap_d
 )
 mass_operator[num_blocks_f2, threadsperblock_m](
     u_t_d, facet_coeff1_2_d, m0_d, detJ_f2_d, bfacet_dofmap2_d
 )
+cuda.synchronize()
+scatter_rev(m0_d)
 
 # ---------------------- #
 # Set initial conditions #
@@ -537,12 +649,19 @@ while t < tf:
         copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
         copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
         square[num_blocks_dofs, threadsperblock_dofs](vn_d, w_n_d)
+        cuda.synchronize()
+        scatter_fwd(u_n_d)
+        scatter_fwd(v_n_d)
+        scatter_fwd(w_n_d)
 
         # Assemble LHS (Unsteady)
         fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
         mass_operator[num_blocks_m, threadsperblock_m](
             u_n_d, cell_coeff2_d, m_d, detJ_d, dofmap_d
         )
+        cuda.synchronize()
+        scatter_rev(m_d)
+
         axpy[num_blocks_dofs, threadsperblock_dofs](1.0, m0_d, m_d)
 
         # Assemble RHS
@@ -566,7 +685,9 @@ while t < tf:
         mass_operator[num_blocks_m, threadsperblock_m](
             w_n_d, cell_coeff5_d, b_d, detJ_d, dofmap_d
         )
-        
+        cuda.synchronize()
+        scatter_rev(b_d)
+
         # Solve
         pointwise_divide[num_blocks_dofs, threadsperblock_dofs](b_d, m_d, kv_d)
 
@@ -581,20 +702,42 @@ while t < tf:
     t += dt
     step += 1
 
-    if step % 100 == 0 and MPI.COMM_WORLD.rank == 0:
+    if step % 100 == 0 and rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
+cuda.synchronize()
+scatter_fwd(u_n_d)
 u_n_d.copy_to_host(u_n)
 v_n_d.copy_to_host(v_n)
 t_solve.stop()
 
-if MPI.COMM_WORLD.rank == 0:
+print(f"{rank}: {u_n}")
+if rank == 0:
     print(f"Solve time: {t_solve.elapsed()[0]}")
     print(f"Solve time per step: {t_solve.elapsed()[0]/nstep}")
 
-# --------------------- #
-# Output final solution #
-# --------------------- #
+# --------------- #
+# Output solution #
+# --------------- #
 
-with VTXWriter(MPI.COMM_WORLD, "output_final.bp", u_n_, "bp4") as f:
-    f.write(0.0)
+# Evaluate function
+u_n_eval = u_n_.eval(x_eval, cell_eval)
+
+try:
+    data[:, 2] = u_n_eval.flatten()
+except:
+    pass
+
+# Write evaluation from each process into a single file
+comm.Barrier()
+
+for i in range(comm.size):
+    if rank == i:
+        fname = f"/home/user/adeeb/data/pressure_field_nonlinear_nproc{comm.size}.txt"
+        f_data = open(fname, "a")
+        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
+        f_data.close()
+
+    comm.Barrier()
+
+# --------------------------------------------------------------

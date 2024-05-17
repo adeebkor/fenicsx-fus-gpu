@@ -1,11 +1,12 @@
 #
-# Linear wave
-# - Benchmark 1 Source 2 from the benchmark paper.
-# ================================================
+# Nonlinear wave
+# - H131 transducer at 100W in water
+# ==================================
 # Copyright (C) 2024 Adeeb Arif Kor
 
+
 import numpy as np
-import numba.cuda as cuda
+from numba import cuda
 from mpi4py import MPI
 
 import basix
@@ -14,7 +15,7 @@ from dolfinx import cpp, la
 from dolfinx.common import Timer
 from dolfinx.fem import functionspace, Function
 from dolfinx.io import XDMFFile
-from dolfinx.mesh import GhostMode
+from dolfinx.mesh import locate_entities_boundary, GhostMode
 
 from precompute import (
     compute_scaled_jacobian_determinant,
@@ -28,12 +29,17 @@ from operators import (
     copy,
     fill,
     pointwise_divide,
+    square,
 )
 from scatterer import (
     scatter_forward,
     scatter_reverse,
 )
-from utils import facet_integration_domain, compute_eval_params
+from utils import (
+    facet_integration_domain,
+    compute_eval_params,
+    compute_diffusivity_of_sound,
+)
 
 # MPI
 comm = MPI.COMM_WORLD
@@ -51,20 +57,27 @@ print(f"{rank} : {cuda.get_current_device()}")
 float_type = np.float64
 
 # Source parameters
-source_frequency = 0.5e6  # Hz
-source_amplitude = 60000.0  # Pa
+speed_of_sound = 1480.0  # m/s
+density = 1000.0  # kg/m^3
+source_frequency = 1.1e6  # Hz
+source_velocity = 0.38557513826589934  # m/s
+source_amplitude = density * speed_of_sound * source_velocity  # Pa
 period = 1.0 / source_frequency  # s
 angular_frequency = 2.0 * np.pi * source_frequency  # rad/s
 
 # Material parameters
-speed_of_sound = 1500.0  # m/s
-density = 1000.0  # kg/m^3
+nonlinear_coefficient = 3.5
+attenuation_coefficient_dB = 0.2
+attenuation_coefficient_Np = attenuation_coefficient_dB / 20 * np.log(10)
+diffusivity_of_sound = compute_diffusivity_of_sound(
+    angular_frequency, speed_of_sound, attenuation_coefficient_dB
+)
 
 # Domain parameters
-domain_length = 0.12  # m
+domain_length = 0.08  # m
 
 # FE parameters
-basis_degree = 4
+basis_degree = 6
 quadrature_degree = {
     2: 3,
     3: 4,
@@ -80,8 +93,9 @@ quadrature_degree = {
 nd = basis_degree + 1
 
 # Read mesh and mesh tags
-with XDMFFile(comm, "BM1SC2/mesh.xdmf", "r") as fmesh:
-    mesh_name = "planar_3d_0"
+print(f"{rank} : Reading mesh!", flush=True)
+with XDMFFile(comm, "H131/mesh.xdmf", "r") as fmesh:
+    mesh_name = "transducer_3d_W"
     mesh = fmesh.read_mesh(name=f"{mesh_name}", ghost_mode=GhostMode.none)
     tdim = mesh.topology.dim
     gdim = mesh.geometry.dim
@@ -104,7 +118,7 @@ x_g = mesh.geometry.x
 cell_type = mesh.basix_cell()
 
 # Temporal parameters
-CFL = 0.65
+CFL = 0.40
 time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
@@ -117,11 +131,11 @@ if comm.rank == 0:
 
 # -----------------------------------------------------------------------------
 # Evaluation parameters
-npts_x = 141
-npts_z = 241
+npts_x = 357
+npts_z = 179
 
-x_p = np.linspace(-0.035, 0.035, npts_x, dtype=float_type)
-z_p = np.linspace(0, domain_length, npts_z, dtype=float_type)
+x_p = np.linspace(0, domain_length, npts_x, dtype=float_type)
+z_p = np.linspace(-0.02, 0.02, npts_z, dtype=float_type)
 
 X_p, Z_p = np.meshgrid(x_p, z_p)
 
@@ -145,7 +159,6 @@ step_period = 0
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
-
 c0 = Function(V_DG, dtype=float_type)
 c0.x.array[:] = speed_of_sound
 c0_ = c0.x.array
@@ -153,6 +166,14 @@ c0_ = c0.x.array
 rho0 = Function(V_DG, dtype=float_type)
 rho0.x.array[:] = density
 rho0_ = rho0.x.array
+
+delta0 = Function(V_DG, dtype=float_type)
+delta0.x.array[:] = diffusivity_of_sound
+delta0_ = delta0.x.array
+
+beta0 = Function(V_DG, dtype=float_type)
+beta0.x.array[:] = nonlinear_coefficient
+beta0_ = beta0.x.array
 
 # Tensor product element
 family = basix.ElementFamily.P
@@ -188,6 +209,8 @@ owners = imap.owners
 unique_owners, owners_size = np.unique(owners, return_counts=True)
 owners_argsorted = np.argsort(owners)
 
+print(f"*** {rank}: Computing owners", flush=True)
+
 owners_offsets = np.cumsum(owners_size)
 owners_offsets = np.insert(owners_offsets, 0, 0)
 
@@ -203,6 +226,8 @@ owners_idx_d = [cuda.to_device(owner_idx) for owner_idx in owners_idx]
 shared_dofs = imap.index_to_dest_ranks()
 shared_ranks = np.unique(shared_dofs.array)
 
+print(f"*** {rank}: Computing ghosts", flush=True)
+# Bottleneck - is there a way to make this faster?
 ghosts = []
 for shared_rank in shared_ranks:
     for dof in range(nlocal):
@@ -216,6 +241,8 @@ ghosts_offsets = np.insert(ghosts_offsets, 0, 0)
 
 all_requests = []
 
+print(f"*** {rank} : Sending!", flush=True)
+
 # Send
 send_buff_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
 for i, owner in enumerate(unique_owners):
@@ -227,6 +254,8 @@ send_buff_idx_d = [cuda.to_device(send_buff) for send_buff in send_buff_idx]
 for i, owner in enumerate(unique_owners):
     reqs = comm.Isend(send_buff_idx_d[i], dest=owner)
     all_requests.append(reqs)
+
+print(f"*** {rank} : Receiving!", flush=True)
 
 # Receive
 recv_buff_idx = [np.zeros(size, dtype=np.int64) for size in ghosts_size]
@@ -247,6 +276,8 @@ ghosts_idx_d = [cuda.to_device(ghost_buff) for ghost_buff in ghosts_idx]
 owners_data_d = [owners_idx_d, owners_size, unique_owners]
 ghosts_data_d = [ghosts_idx_d, ghosts_size, unique_ghosts]
 
+print(f"*** {rank} : Instantiate scatterer!", flush=True)
+
 # Instantiate scatterer
 scatter_rev = scatter_reverse(comm, owners_data_d, ghosts_data_d, nlocal, float_type)
 scatter_fwd = scatter_forward(comm, owners_data_d, ghosts_data_d, nlocal, float_type)
@@ -259,8 +290,10 @@ v_n_ = Function(V, dtype=float_type)
 # Get the numpy arrays
 u_t = u_t_.x.array
 g = u_t.copy()
+dg = u_t.copy()
 u_n = u_n_.x.array
 v_n = v_n_.x.array
+w_n = v_n.copy()
 
 u_n[:] = 0.0
 v_n[:] = 0.0
@@ -271,6 +304,7 @@ b_ = la.vector(V.dofmap.index_map, dtype=float_type)
 
 # Get array for LHS and RHS vector
 m = m_.array
+m0 = m.copy()
 b = b_.array
 
 # Compute geometric data of cell entities
@@ -288,18 +322,26 @@ if rank == 0:
     print("Computing scaled Jacobian determinant (cell)", flush=True)
 
 detJ = np.zeros((num_cells, nq), dtype=float_type)
-compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
+with Timer() as t_detJ:
+    compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
+
+print(f"Computing detJ took {t_detJ.elapsed()[0]} seconds", flush=True)
 
 # Compute scaled geometrical factor (J^{-T}J_{-1})
 if rank == 0:
     print("Computing scaled geometrical factor", flush=True)
 
 G = np.zeros((num_cells, nq, (3 * (gdim - 1))), dtype=float_type)
-compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
+with Timer() as t_G:
+    compute_scaled_geometrical_factor(G, (x_dofs, x_g), num_cells, dphi, wts)
+
+print(f"Computing G took {t_G.elapsed()[0]} seconds", flush=True)
 
 # Compute geometric data of boundary facet entities
 boundary_facets1 = mt_facet.indices[mt_facet.values == 1]
-boundary_facets2 = mt_facet.indices[mt_facet.values == 2]
+boundary_facets2 = locate_entities_boundary(
+    mesh, mesh.topology.dim - 1, lambda x: np.full(x.shape[1], True)
+)
 
 boundary_data1 = facet_integration_domain(
     boundary_facets1, mesh
@@ -373,15 +415,22 @@ for i, (cell, local_facet) in enumerate(boundary_data2):
 
 # Define material coefficients
 cell_coeff1 = 1.0 / rho0_ / c0_ / c0_
-cell_coeff2 = - 1.0 / rho0_
+cell_coeff2 = - 2.0 * beta0_ / rho0_ / rho0_ / c0_ / c0_ / c0_ / c0_
+cell_coeff3 = - 1.0 / rho0_ 
+cell_coeff4 = - delta0_ / rho0_ / c0_ / c0_
+cell_coeff5 = 2.0 * beta0_ / rho0_ / rho0_ / c0_ / c0_ / c0_ / c0_
 
-facet_coeff1 = np.zeros((bfacet_dofmap1.shape[0]), dtype=float_type)
+facet_coeff1_1 = np.zeros((bfacet_dofmap1.shape[0]), dtype=float_type)
+facet_coeff2_1 = np.zeros((bfacet_dofmap1.shape[0]), dtype=float_type) 
 for i, (cell, local_facet) in enumerate(boundary_data1):
-    facet_coeff1[i] = 1.0 / rho0_[cell]
+    facet_coeff1_1[i] = 1.0 / rho0_[cell]
+    facet_coeff2_1[i] = delta0_[cell] / rho0_[cell] / c0_[cell] / c0_[cell]
 
-facet_coeff2 = np.zeros((bfacet_dofmap2.shape[0]), dtype=float_type)
+facet_coeff1_2 = np.zeros((bfacet_dofmap2.shape[0]), dtype=float_type)
+facet_coeff2_2 = np.zeros((bfacet_dofmap2.shape[0]), dtype=float_type)
 for i, (cell, local_facet) in enumerate(boundary_data2):
-    facet_coeff2[i] = - 1.0 / rho0_[cell] / c0_[cell]
+    facet_coeff1_2[i] = delta0_[cell] / rho0_[cell] / c0_[cell] / c0_[cell] / c0_[cell]
+    facet_coeff2_2[i] = - 1.0 / rho0_[cell] / c0_[cell]
 
 # Create 1D element for sum factorisation
 element_1D = basix.create_element(
@@ -402,14 +451,19 @@ dphi_1D = table_1D[1, :, :, 0]
 # Cell operator
 cell_coeff1_d = cuda.to_device(cell_coeff1)
 cell_coeff2_d = cuda.to_device(cell_coeff2)
+cell_coeff3_d = cuda.to_device(cell_coeff3)
+cell_coeff4_d = cuda.to_device(cell_coeff4)
+cell_coeff5_d = cuda.to_device(cell_coeff5)
 dofmap_d = cuda.to_device(dofmap)
 detJ_d = cuda.to_device(detJ)
 G_d = cuda.to_device(G)
 dphi_1D_d = cuda.to_device(dphi_1D)
 
 # Boundary facet operator
-facet_coeff1_d = cuda.to_device(facet_coeff1)
-facet_coeff2_d = cuda.to_device(facet_coeff2)
+facet_coeff1_1_d = cuda.to_device(facet_coeff1_1)
+facet_coeff2_1_d = cuda.to_device(facet_coeff2_1)
+facet_coeff1_2_d = cuda.to_device(facet_coeff1_2)
+facet_coeff2_2_d = cuda.to_device(facet_coeff2_2)
 bfacet_dofmap1_d = cuda.to_device(bfacet_dofmap1)
 bfacet_dofmap2_d = cuda.to_device(bfacet_dofmap2)
 detJ_f1_d = cuda.to_device(detJ_f1)
@@ -418,9 +472,12 @@ detJ_f2_d = cuda.to_device(detJ_f2)
 # Arrays
 u_t_d = cuda.to_device(u_t)
 g_d = cuda.to_device(g)
+dg_d = cuda.to_device(dg)
 u_n_d = cuda.to_device(u_n)
 v_n_d = cuda.to_device(v_n)
+w_n_d = cuda.to_device(w_n)
 m_d = cuda.to_device(m)
+m0_d = cuda.to_device(m0)
 b_d = cuda.to_device(b)
 
 # --------------------- #
@@ -451,20 +508,24 @@ num_blocks_dofs = (ndofs + (threadsperblock_dofs - 1)) // threadsperblock_dofs
 axpy[num_blocks_dofs, threadsperblock_dofs](0.0, u_t_d, m_d)
 copy[num_blocks_dofs, threadsperblock_dofs](m_d, b_d)
 fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
+square[num_blocks_dofs, threadsperblock_dofs](u_t_d, m_d)
 pointwise_divide[num_blocks_dofs, threadsperblock_dofs](m_d, b_d, u_t_d)
 
-# ------------ #
-# Assemble LHS #
-# ------------ #
+# ------------------------- #
+# Assemble the LHS (Steady) #
+# ------------------------- #
 
 fill[num_blocks_dofs, threadsperblock_dofs](1.0, u_t_d)
 
-fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
+fill[num_blocks_dofs, threadsperblock_dofs](0.0, m0_d)
 mass_operator[num_blocks_m, threadsperblock_m](
-    u_t_d, cell_coeff1_d, m_d, detJ_d, dofmap_d
+    u_t_d, cell_coeff1_d, m0_d, detJ_d, dofmap_d
+)
+mass_operator[num_blocks_f2, threadsperblock_m](
+    u_t_d, facet_coeff1_2_d, m0_d, detJ_f2_d, bfacet_dofmap2_d
 )
 cuda.synchronize()
-scatter_rev(m_d)
+scatter_rev(m0_d)
 
 # ---------------------- #
 # Set initial conditions #
@@ -472,6 +533,7 @@ scatter_rev(m_d)
 
 fill[num_blocks_dofs, threadsperblock_dofs](0.0, u_n_d)
 fill[num_blocks_dofs, threadsperblock_dofs](0.0, v_n_d)
+fill[num_blocks_dofs, threadsperblock_dofs](0.0, w_n_d)
 
 # --------------- #
 # Solve using RK4 #
@@ -552,43 +614,89 @@ while t < tf:
 
         # Compute window function
         T = 1 / source_frequency
-        alpha = 4
+        alpha = 4.0
 
         if t < T * alpha:
-            window = 0.5 * (1 - np.cos(source_frequency * np.pi * t / alpha))
+            window = 0.5 * (1.0 - np.cos(source_frequency * np.pi * t / alpha))
+            dwindow = (
+                0.5
+                * np.pi
+                * source_frequency
+                / alpha
+                * np.sin(source_frequency * np.pi * t / alpha)
+            )
         else:
             window = 1.0
+            dwindow = 0.0
 
         # Update source function
         g_vals = (
             window
+            * 2.0
             * source_amplitude
             * angular_frequency
             / speed_of_sound
             * np.cos(angular_frequency * t)
         )
+        dg_vals = (
+            dwindow
+            * 2.0
+            * source_amplitude
+            * angular_frequency
+            / speed_of_sound
+            * np.cos(angular_frequency * t)
+            - window
+            * 2.0
+            * source_amplitude
+            * angular_frequency**2
+            / speed_of_sound
+            * np.sin(angular_frequency * t)
+        )
+
         fill[num_blocks_dofs, threadsperblock_dofs](g_vals, g_d)
+        fill[num_blocks_dofs, threadsperblock_dofs](dg_vals, dg_d)
 
         # Update fields
         copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
         copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
+        square[num_blocks_dofs, threadsperblock_dofs](vn_d, w_n_d)
         cuda.synchronize()
         scatter_fwd(u_n_d)
         scatter_fwd(v_n_d)
+        scatter_fwd(w_n_d)
+
+        # Assemble LHS (Unsteady)
+        fill[num_blocks_dofs, threadsperblock_dofs](0.0, m_d)
+        mass_operator[num_blocks_m, threadsperblock_m](
+            u_n_d, cell_coeff2_d, m_d, detJ_d, dofmap_d
+        )
+        cuda.synchronize()
+        scatter_rev(m_d)
+
+        axpy[num_blocks_dofs, threadsperblock_dofs](1.0, m0_d, m_d)
 
         # Assemble RHS
         fill[num_blocks_dofs, threadsperblock_dofs](0.0, b_d)
 
         stiff_operator_cell[num_blocks_s, threadsperblock_s](
-            u_n_d, cell_coeff2_d, b_d, G_d, dofmap_d, dphi_1D_d
+            u_n_d, cell_coeff3_d, b_d, G_d, dofmap_d, dphi_1D_d
+        )
+        mass_operator[num_blocks_f2, threadsperblock_m](
+            v_n_d, facet_coeff2_2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
+        )
+        stiff_operator_cell[num_blocks_s, threadsperblock_s](
+            v_n_d, cell_coeff4_d, b_d, G_d, dofmap_d, dphi_1D_d
+        )
+        mass_operator[num_blocks_m, threadsperblock_m](
+            w_n_d, cell_coeff5_d, b_d, detJ_d, dofmap_d
         )
         if bfacet_dofmap1.any():
             mass_operator[num_blocks_f1, threadsperblock_m](
-                g_d, facet_coeff1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
+                g_d, facet_coeff1_1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
             )
-        mass_operator[num_blocks_f2, threadsperblock_m](
-            v_n_d, facet_coeff2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
-        )
+            mass_operator[num_blocks_f1, threadsperblock_m](
+                dg_d, facet_coeff2_1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
+            )
         cuda.synchronize()
         scatter_rev(b_d)
 
@@ -661,7 +769,7 @@ comm.Barrier()
 
 for i in range(comm.size):
     if rank == i:
-        fname = f"/home/user/adeeb/data/pressure_field.txt"
+        fname = f"/home/user/adeeb/data/pressure_field_nonlinear_nproc{comm.size}.txt"
         f_data = open(fname, "a")
         np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
         f_data.close()
