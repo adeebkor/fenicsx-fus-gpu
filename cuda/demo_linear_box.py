@@ -178,7 +178,7 @@ imap = V.dofmap.index_map
 
 if rank == 0:
     print(f"Number of degrees-of-freedom: {imap.size_global}")
-
+    
 # ------------ #
 # Scatter data #
 # ------------ #
@@ -249,7 +249,6 @@ for i, ghosts in enumerate(unique_ghosts):
 ghosts_idx = [recv_buff - imap.local_range[0] for recv_buff in recv_buff_idx]
 
 ghosts_idx_d = [cuda.to_device(ghost_buff) for ghost_buff in ghosts_idx]
-
 owners_data_d = [owners_idx_d, owners_size, unique_owners]
 ghosts_data_d = [ghosts_idx_d, ghosts_size, unique_ghosts]
 
