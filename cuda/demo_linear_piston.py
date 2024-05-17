@@ -609,7 +609,6 @@ while t < tf:
     if step % 100 == 0 and rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
-
     # -------------------------------------------------------------------------
     # Collect data
 
@@ -640,6 +639,7 @@ u_n_d.copy_to_host(u_n)
 v_n_d.copy_to_host(v_n)
 t_solve.stop()
 
+print(f"{rank}: {u_n}")
 if rank == 0:
     print(f"Solve time: {t_solve.elapsed()[0]}")
     print(f"Solve time per step: {t_solve.elapsed()[0]/nstep}")
@@ -660,7 +660,7 @@ except:
 comm.Barrier()
 
 for i in range(comm.size):
-    if comm.rank == i:
+    if rank == i:
         fname = f"/home/user/adeeb/data/pressure_field.txt"
         f_data = open(fname, "a")
         np.savetxt(f_data, data, fmt='%.8f', delimiter=",")

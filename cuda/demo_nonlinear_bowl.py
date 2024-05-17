@@ -123,7 +123,7 @@ time_step_size = CFL * mesh_size / (speed_of_sound * basis_degree**2)
 step_per_period = int(period / time_step_size) + 1
 time_step_size = period / step_per_period
 start_time = 0.0
-final_time = domain_length / speed_of_sound / 6.0 #  + 8.0 / source_frequency
+final_time = domain_length / speed_of_sound + 8.0 / source_frequency
 number_of_step = int((final_time - start_time) / time_step_size) + 1
 
 if comm.rank == 0:
@@ -131,11 +131,11 @@ if comm.rank == 0:
 
 # -----------------------------------------------------------------------------
 # Evaluation parameters
-npts_x = 179
-npts_z = 357
+npts_x = 357
+npts_z = 179
 
-x_p = np.linspace(-0.04, 0.04, npts_x, dtype=float_type)
-z_p = np.linspace(0, domain_length, npts_z, dtype=float_type)
+x_p = np.linspace(0, domain_length, npts_x, dtype=float_type)
+z_p = np.linspace(-0.02, 0.02, npts_z, dtype=float_type)
 
 X_p, Z_p = np.meshgrid(x_p, z_p)
 
@@ -155,6 +155,8 @@ except:
 
 num_step_per_period = step_per_period + 2
 step_period = 0
+print(num_step_per_period)
+exit()
 # -----------------------------------------------------------------------------
 
 # Define a DG function space for the material parameters
@@ -413,9 +415,6 @@ bfacet_dofmap2 = np.zeros(
 
 for i, (cell, local_facet) in enumerate(boundary_data2):
     bfacet_dofmap2[i, :] = dofmap[cell][local_facet_dof[local_facet]]
-
-print(f"{rank} : {bfacet_dofmap1.any()} : {bfacet_dofmap2.any()}")
-exit()
 
 # Define material coefficients
 cell_coeff1 = 1.0 / rho0_ / c0_ / c0_
@@ -721,6 +720,30 @@ while t < tf:
     if step % 100 == 0 and rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
+    # -------------------------------------------------------------------------
+    # Collect data
+
+    if (t > domain_length / speed_of_sound + 6.0 / source_frequency and step_period < num_step_per_period):
+        cuda.synchronize()
+        scatter_fwd(u_n_d)
+        u_n_d.copy_to_host(u_n)
+
+        # Evaluate function
+        u_n_eval = u_n_.eval(x_eval, cell_eval)
+
+        try:
+            data[:, 2] = u_n_eval.flatten()
+        except:
+            pass
+
+        fname = f"/home/user/adeeb/data/pressure_field_{step_period}.txt"
+        f_data = open(fname, "a")
+        np.savetxt(f_data, data, fmt='%.8f', delimiter=",")
+        f_data.close()
+
+        step_period += 1
+    # -------------------------------------------------------------------------
+
 cuda.synchronize()
 scatter_fwd(u_n_d)
 u_n_d.copy_to_host(u_n)
@@ -731,7 +754,7 @@ print(f"{rank}: {u_n}")
 if rank == 0:
     print(f"Solve time: {t_solve.elapsed()[0]}")
     print(f"Solve time per step: {t_solve.elapsed()[0]/nstep}")
-
+"""
 # --------------- #
 # Output solution #
 # --------------- #
@@ -757,3 +780,4 @@ for i in range(comm.size):
     comm.Barrier()
 
 # --------------------------------------------------------------
+"""
