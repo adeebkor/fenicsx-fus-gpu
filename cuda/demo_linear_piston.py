@@ -39,6 +39,7 @@ from utils import facet_integration_domain, compute_eval_params
 comm = MPI.COMM_WORLD
 rank = comm.rank
 
+# Check if CUDA is available
 if cuda.is_available():
     print("CUDA is available", flush=True)
 
@@ -79,7 +80,7 @@ quadrature_degree = {
 nd = basis_degree + 1
 
 # Read mesh and mesh tags
-with XDMFFile(comm, "mesh.xdmf", "r") as fmesh:
+with XDMFFile(comm, "BM1SC2/mesh.xdmf", "r") as fmesh:
     mesh_name = "planar_3d_0"
     mesh = fmesh.read_mesh(name=f"{mesh_name}", ghost_mode=GhostMode.none)
     tdim = mesh.topology.dim
@@ -169,11 +170,14 @@ V = functionspace(mesh, element)
 dofmap = V.dofmap.list[:, perm]
 imap = V.dofmap.index_map
 
+if rank == 0:
+    print(f"Number of degrees-of-freedom: {imap.size_global}")
+
 # ------------ #
 # Scatter data #
 # ------------ #
 
-if comm.rank == 0:
+if rank == 0:
     print("Computing scatterer data", flush=True)
 
 # Compute ghosts data in this process that are owned by other processes
@@ -252,7 +256,7 @@ u_t_ = Function(V, dtype=float_type)
 u_n_ = Function(V, dtype=float_type)
 v_n_ = Function(V, dtype=float_type)
 
-# Get the numpy array
+# Get the numpy arrays
 u_t = u_t_.x.array
 g = u_t.copy()
 u_n = u_n_.x.array
@@ -280,14 +284,14 @@ gtable = gelement.tabulate(1, pts)
 dphi = gtable[1:, :, :, 0]
 
 # Compute scaled Jacobian determinant (cell)
-if comm.rank == 0:
+if rank == 0:
     print("Computing scaled Jacobian determinant (cell)", flush=True)
 
 detJ = np.zeros((num_cells, nq), dtype=float_type)
 compute_scaled_jacobian_determinant(detJ, (x_dofs, x_g), num_cells, dphi, wts)
 
 # Compute scaled geometrical factor (J^{-T}J_{-1})
-if comm.rank == 0:
+if rank == 0:
     print("Computing scaled geometrical factor", flush=True)
 
 G = np.zeros((num_cells, nq, (3 * (gdim - 1))), dtype=float_type)
@@ -334,7 +338,7 @@ for f in range(6):
     dphi_f[f, :, :, :] = gtable_f[1:, :, :, 0]
 
 # Compute scaled Jacobian determinant (source facets)
-if comm.rank == 0:
+if rank == 0:
     print("Computing scaled Jacobian determinant (source facets)", flush=True)
 
 detJ_f1 = np.zeros((boundary_data1.shape[0], nq_f), dtype=float_type)
@@ -343,7 +347,7 @@ compute_boundary_facets_scaled_jacobian_determinant(
 )
 
 # Compute scaled Jacobian determinant (absorbing facets)
-if comm.rank == 0:
+if rank == 0:
     print("Computing scaled Jacobian determinant (absorbing facets)", flush=True)
 
 detJ_f2 = np.zeros((boundary_data2.shape[0], nq_f), dtype=float_type)
@@ -514,7 +518,7 @@ nstep = int((tf - ts) / dt) + 1
 
 t = start_time
 
-if comm.rank == 0:
+if rank == 0:
     print("Solve!", flush=True)
 
 t_solve = Timer("Solve!")
@@ -602,7 +606,7 @@ while t < tf:
     t += dt
     step += 1
 
-    if step % 100 == 0 and comm.rank == 0:
+    if step % 100 == 0 and rank == 0:
         print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
 
 
@@ -636,7 +640,7 @@ u_n_d.copy_to_host(u_n)
 v_n_d.copy_to_host(v_n)
 t_solve.stop()
 
-if comm.rank == 0:
+if rank == 0:
     print(f"Solve time: {t_solve.elapsed()[0]}")
     print(f"Solve time per step: {t_solve.elapsed()[0]/nstep}")
 """
