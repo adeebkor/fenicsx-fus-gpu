@@ -77,7 +77,7 @@ diffusivity_of_sound = compute_diffusivity_of_sound(
 domain_length = 0.12  # m
 
 # FE parameters
-basis_degree = 4
+basis_degree = 6
 quadrature_degree = {
     2: 3,
     3: 4,
@@ -95,7 +95,7 @@ nd = basis_degree + 1
 # Mesh parameters
 wave_length = speed_of_sound / source_frequency
 num_of_waves = domain_length / wave_length
-num_element = int(2 * num_of_waves)
+num_element = int(1 * num_of_waves)
 
 # Create mesh
 mesh = create_box(
@@ -213,6 +213,8 @@ owners = imap.owners
 unique_owners, owners_size = np.unique(owners, return_counts=True)
 owners_argsorted = np.argsort(owners)
 
+print(f"*** {rank}: Computing owners", flush=True)
+
 owners_offsets = np.cumsum(owners_size)
 owners_offsets = np.insert(owners_offsets, 0, 0)
 
@@ -228,6 +230,8 @@ owners_idx_d = [cuda.to_device(owner_idx) for owner_idx in owners_idx]
 shared_dofs = imap.index_to_dest_ranks()
 shared_ranks = np.unique(shared_dofs.array)
 
+print(f"*** {rank}: Computing ghosts", flush=True)
+# Bottleneck - is there a way to make this faster?
 ghosts = []
 for shared_rank in shared_ranks:
     for dof in range(nlocal):
@@ -241,6 +245,8 @@ ghosts_offsets = np.insert(ghosts_offsets, 0, 0)
 
 all_requests = []
 
+print(f"*** {rank} : Sending!", flush=True)
+
 # Send
 send_buff_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
 for i, owner in enumerate(unique_owners):
@@ -252,6 +258,8 @@ send_buff_idx_d = [cuda.to_device(send_buff) for send_buff in send_buff_idx]
 for i, owner in enumerate(unique_owners):
     reqs = comm.Isend(send_buff_idx_d[i], dest=owner)
     all_requests.append(reqs)
+
+print(f"*** {rank} : Receiving!", flush=True)
 
 # Receive
 recv_buff_idx = [np.zeros(size, dtype=np.int64) for size in ghosts_size]
@@ -271,6 +279,8 @@ ghosts_idx_d = [cuda.to_device(ghost_buff) for ghost_buff in ghosts_idx]
 
 owners_data_d = [owners_idx_d, owners_size, unique_owners]
 ghosts_data_d = [ghosts_idx_d, ghosts_size, unique_ghosts]
+
+print(f"*** {rank} : Instantiate scatterer!", flush=True)
 
 # Instantiate scatterer
 scatter_rev = scatter_reverse(comm, owners_data_d, ghosts_data_d, nlocal, float_type)
@@ -513,10 +523,10 @@ fill[num_blocks_dofs, threadsperblock_dofs](0.0, m0_d)
 mass_operator[num_blocks_m, threadsperblock_m](
     u_t_d, cell_coeff1_d, m0_d, detJ_d, dofmap_d
 )
-mass_operator[num_blocks_f2, threadsperblock_m](
-    u_t_d, facet_coeff1_2_d, m0_d, detJ_f2_d, bfacet_dofmap2_d
-)
-cuda.synchronize()
+if bfacet_dofmap2.any():
+    mass_operator[num_blocks_f2, threadsperblock_m](
+        u_t_d, facet_coeff1_2_d, m0_d, detJ_f2_d, bfacet_dofmap2_d
+    )
 scatter_rev(m0_d)
 
 # ---------------------- #
@@ -649,7 +659,6 @@ while t < tf:
         copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
         copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
         square[num_blocks_dofs, threadsperblock_dofs](vn_d, w_n_d)
-        cuda.synchronize()
         scatter_fwd(u_n_d)
         scatter_fwd(v_n_d)
         scatter_fwd(w_n_d)
@@ -659,7 +668,6 @@ while t < tf:
         mass_operator[num_blocks_m, threadsperblock_m](
             u_n_d, cell_coeff2_d, m_d, detJ_d, dofmap_d
         )
-        cuda.synchronize()
         scatter_rev(m_d)
 
         axpy[num_blocks_dofs, threadsperblock_dofs](1.0, m0_d, m_d)
@@ -670,22 +678,23 @@ while t < tf:
         stiff_operator_cell[num_blocks_s, threadsperblock_s](
             u_n_d, cell_coeff3_d, b_d, G_d, dofmap_d, dphi_1D_d
         )
-        mass_operator[num_blocks_f1, threadsperblock_m](
-            g_d, facet_coeff1_1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
-        )
-        mass_operator[num_blocks_f2, threadsperblock_m](
-            v_n_d, facet_coeff2_2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
-        )
         stiff_operator_cell[num_blocks_s, threadsperblock_s](
             v_n_d, cell_coeff4_d, b_d, G_d, dofmap_d, dphi_1D_d
-        )
-        mass_operator[num_blocks_f1, threadsperblock_m](
-            dg_d, facet_coeff2_1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
         )
         mass_operator[num_blocks_m, threadsperblock_m](
             w_n_d, cell_coeff5_d, b_d, detJ_d, dofmap_d
         )
-        cuda.synchronize()
+        if bfacet_dofmap1.any():
+            mass_operator[num_blocks_f1, threadsperblock_m](
+                g_d, facet_coeff1_1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
+            )
+            mass_operator[num_blocks_f1, threadsperblock_m](
+                dg_d, facet_coeff2_1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
+            )
+        if bfacet_dofmap2.any():
+            mass_operator[num_blocks_f2, threadsperblock_m](
+                v_n_d, facet_coeff2_2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
+            )
         scatter_rev(b_d)
 
         # Solve
@@ -703,7 +712,7 @@ while t < tf:
     step += 1
 
     if step % 100 == 0 and rank == 0:
-        print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
+        print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_n[0]}", flush=True)
 
 cuda.synchronize()
 scatter_fwd(u_n_d)

@@ -126,7 +126,7 @@ start_time = 0.0
 final_time = domain_length / speed_of_sound + 8.0 / source_frequency
 number_of_step = int((final_time - start_time) / time_step_size) + 1
 
-if comm.rank == 0:
+if rank == 0:
     print(f"Number of steps: {number_of_step}", flush=True)
 
 # -----------------------------------------------------------------------------
@@ -159,6 +159,7 @@ step_period = 0
 
 # Define a DG function space for the material parameters
 V_DG = functionspace(mesh, ("DG", 0))
+
 c0 = Function(V_DG, dtype=float_type)
 c0.x.array[:] = speed_of_sound
 c0_ = c0.x.array
@@ -521,10 +522,10 @@ fill[num_blocks_dofs, threadsperblock_dofs](0.0, m0_d)
 mass_operator[num_blocks_m, threadsperblock_m](
     u_t_d, cell_coeff1_d, m0_d, detJ_d, dofmap_d
 )
-mass_operator[num_blocks_f2, threadsperblock_m](
-    u_t_d, facet_coeff1_2_d, m0_d, detJ_f2_d, bfacet_dofmap2_d
-)
-cuda.synchronize()
+if bfacet_dofmap2.any():
+    mass_operator[num_blocks_f2, threadsperblock_m](
+        u_t_d, facet_coeff1_2_d, m0_d, detJ_f2_d, bfacet_dofmap2_d
+    )
 scatter_rev(m0_d)
 
 # ---------------------- #
@@ -660,7 +661,6 @@ while t < tf:
         copy[num_blocks_dofs, threadsperblock_dofs](un_d, u_n_d)
         copy[num_blocks_dofs, threadsperblock_dofs](vn_d, v_n_d)
         square[num_blocks_dofs, threadsperblock_dofs](vn_d, w_n_d)
-        cuda.synchronize()
         scatter_fwd(u_n_d)
         scatter_fwd(v_n_d)
         scatter_fwd(w_n_d)
@@ -670,7 +670,6 @@ while t < tf:
         mass_operator[num_blocks_m, threadsperblock_m](
             u_n_d, cell_coeff2_d, m_d, detJ_d, dofmap_d
         )
-        cuda.synchronize()
         scatter_rev(m_d)
 
         axpy[num_blocks_dofs, threadsperblock_dofs](1.0, m0_d, m_d)
@@ -680,9 +679,6 @@ while t < tf:
 
         stiff_operator_cell[num_blocks_s, threadsperblock_s](
             u_n_d, cell_coeff3_d, b_d, G_d, dofmap_d, dphi_1D_d
-        )
-        mass_operator[num_blocks_f2, threadsperblock_m](
-            v_n_d, facet_coeff2_2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
         )
         stiff_operator_cell[num_blocks_s, threadsperblock_s](
             v_n_d, cell_coeff4_d, b_d, G_d, dofmap_d, dphi_1D_d
@@ -697,7 +693,10 @@ while t < tf:
             mass_operator[num_blocks_f1, threadsperblock_m](
                 dg_d, facet_coeff2_1_d, b_d, detJ_f1_d, bfacet_dofmap1_d
             )
-        cuda.synchronize()
+        if bfacet_dofmap2.any():
+            mass_operator[num_blocks_f2, threadsperblock_m](
+                v_n_d, facet_coeff2_2_d, b_d, detJ_f2_d, bfacet_dofmap2_d
+            )
         scatter_rev(b_d)
 
         # Solve
@@ -715,8 +714,8 @@ while t < tf:
     step += 1
 
     if step % 100 == 0 and rank == 0:
-        print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_[0]}", flush=True)
-
+        print(f"t: {t:5.5},\t Steps: {step}/{nstep}, \t u[0] = {u_n[0]}", flush=True)
+    
     # -------------------------------------------------------------------------
     # Collect data
 
@@ -740,7 +739,7 @@ while t < tf:
 
         step_period += 1
     # -------------------------------------------------------------------------
-
+    
 cuda.synchronize()
 scatter_fwd(u_n_d)
 u_n_d.copy_to_host(u_n)

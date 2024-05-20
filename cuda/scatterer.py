@@ -158,6 +158,9 @@ def scatter_reverse(
         ]
         for i, sb in enumerate(send_buff):
             pack_rev[numblocks_pack[i], threadsperblock](buffer, sb, owners_idx[i], N)
+        
+        # Synchronize
+        cuda.synchronize()
 
         # Send
         for i, dest in enumerate(owners):
@@ -178,6 +181,9 @@ def scatter_reverse(
         ]
         for i, rb in enumerate(recv_buff):
             unpack_rev[numblocks_unpack[i], threadsperblock](rb, buffer, ghosts_idx[i])
+
+        # Synchronize
+        cuda.synchronize()
 
     return scatter
 
@@ -240,6 +246,9 @@ def scatter_forward(
         for i, sb in enumerate(send_buff):
             pack_fwd[numblocks_pack[i], threadsperblock](buffer, sb, ghosts_idx[i])
 
+        # Synchronize
+        cuda.synchronize()
+
         # Send
         for i, dest in enumerate(ghosts):
             reqs = comm.Isend(send_buff[i], dest=dest)
@@ -261,5 +270,8 @@ def scatter_forward(
             unpack_fwd[numblocks_unpack[i], threadsperblock](
                 rb, buffer, owners_idx[i], N
             )
+
+        # Synchronize
+        cuda.synchronize()
 
     return scatter
