@@ -18,6 +18,7 @@ from dolfinx.la import InsertMode
 from dolfinx.mesh import create_box, CellType, GhostMode
 
 from scatterer import scatter_reverse, scatter_forward
+from utils import compute_scatterer_data
 
 # MPI
 comm = MPI.COMM_WORLD
@@ -75,72 +76,24 @@ element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 V = functionspace(mesh, element)
 dofmap = V.dofmap.list
 imap = V.dofmap.index_map
+nlocal = imap.size_local
 
 if rank == 0:
     print(f"Number of degrees-of-freedom: {imap.size_global}")
 
-# Compute ghosts data in this process that are owned by other processes
-nlocal = imap.size_local
-nghost = imap.num_ghosts
-owners = imap.owners
-unique_owners, owners_size = np.unique(owners, return_counts=True)
-owners_argsorted = np.argsort(owners)
+# ------------ #
+# Scatter data #
+# ------------ #
 
-owners_offsets = np.cumsum(owners_size)
-owners_offsets = np.insert(owners_offsets, 0, 0)
+owners_data, ghosts_data = compute_scatterer_data(imap)
 
-owners_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
-for i, owner in enumerate(unique_owners):
-    begin = owners_offsets[i]
-    end = owners_offsets[i + 1]
-    owners_idx[i] = owners_argsorted[begin:end]
+owners_idx_d = [cuda.to_device(owner_idx) for owner_idx in owners_data[0]]
+owners_size = owners_data[1]
+unique_owners = owners_data[2]
 
-owners_idx_d = [cuda.to_device(owner_idx) for owner_idx in owners_idx]
-
-# Compute owned data by this process that are ghosts data in other process
-shared_dofs = imap.index_to_dest_ranks()
-shared_ranks = np.unique(shared_dofs.array)
-
-ghosts = []
-for shared_rank in shared_ranks:
-    for dof in range(nlocal):
-        if shared_rank in shared_dofs.links(dof):
-            ghosts.append(shared_rank)
-
-ghosts = np.array(ghosts)
-unique_ghosts, ghosts_size = np.unique(ghosts, return_counts=True)
-ghosts_offsets = np.cumsum(ghosts_size)
-ghosts_offsets = np.insert(ghosts_offsets, 0, 0)
-
-all_requests = []
-
-# Send
-send_buff_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
-for i, owner in enumerate(unique_owners):
-    begin = owners_offsets[i]
-    end = owners_offsets[i + 1]
-    send_buff_idx[i] = imap.ghosts[owners_argsorted[begin:end]]
-
-send_buff_idx_d = [cuda.to_device(send_buff) for send_buff in send_buff_idx]
-for i, owner in enumerate(unique_owners):
-    reqs = comm.Isend(send_buff_idx_d[i], dest=owner)
-    all_requests.append(reqs)
-
-# Receive
-recv_buff_idx = [np.zeros(size, dtype=np.int64) for size in ghosts_size]
-recv_buff_idx_d = [cuda.to_device(recv_buff) for recv_buff in recv_buff_idx]
-for i, ghost in enumerate(unique_ghosts):
-    reqr = comm.Irecv(recv_buff_idx_d[i], source=ghost)
-    all_requests.append(reqr)
-
-MPI.Request.Waitall(all_requests)
-
-for i, ghosts in enumerate(unique_ghosts):
-    recv_buff_idx[i] = recv_buff_idx_d[i].copy_to_host()
-
-ghosts_idx = [recv_buff - imap.local_range[0] for recv_buff in recv_buff_idx]
-
-ghosts_idx_d = [cuda.to_device(ghost_buff) for ghost_buff in ghosts_idx]
+ghosts_idx_d = [cuda.to_device(ghost_idx) for ghost_idx in ghosts_data[0]]
+ghosts_size = ghosts_data[1]
+unique_ghosts = ghosts_data[2]
 
 owners_data_d = [owners_idx_d, owners_size, unique_owners]
 ghosts_data_d = [ghosts_idx_d, ghosts_size, unique_ghosts]

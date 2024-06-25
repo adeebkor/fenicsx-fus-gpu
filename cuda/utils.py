@@ -1,7 +1,81 @@
 import numpy as np
 import numpy.typing as npt
+from mpi4py import MPI
 from dolfinx.mesh import Mesh
 from dolfinx.geometry import bb_tree, compute_collisions_points, compute_colliding_cells
+
+
+def compute_scatterer_data(index_map):
+    """
+    Extract scatterer data, i.e., obtain the owners and ghosts 
+    degrees-of-freedom.
+
+    Parameters
+    ----------
+    index_map : dolfinx index map
+
+    Return
+    ------
+    owners_data : list containing owners data
+    ghosts_data : list containing ghosts data
+    """
+
+    # Compute ghosts data in this process that are owned by other processes
+    nlocal = index_map.size_local
+    nghost = index_map.num_ghosts
+    owners = index_map.owners
+    unique_owners, owners_size = np.unique(owners, return_counts=True)
+    owners_argsorted = np.argsort(owners)
+
+    owners_offsets = np.cumsum(owners_size)
+    owners_offsets = np.insert(owners_offsets, 0, 0)
+
+    owners_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
+    for i, owner in enumerate(unique_owners):
+        begin = owners_offsets[i]
+        end = owners_offsets[i + 1]
+        owners_idx[i] = owners_argsorted[begin:end]
+
+    # Compute owned data by this process that are ghosts data in other process
+    shared_dofs = index_map.index_to_dest_ranks()
+    shared_ranks = np.unique(shared_dofs.array)
+
+    ghosts = []
+    for shared_rank in shared_ranks:
+        for dof in range(nlocal):
+            if shared_rank in shared_dofs.links(dof):
+                ghosts.append(shared_rank)
+
+    ghosts = np.array(ghosts)
+    unique_ghosts, ghosts_size = np.unique(ghosts, return_counts=True)
+    ghosts_offsets = np.cumsum(ghosts_size)
+    ghosts_offsets = np.insert(ghosts_offsets, 0, 0)
+
+    all_requests = []
+
+    # Send
+    send_buff_idx = [np.zeros(size, dtype=np.int64) for size in owners_size]
+    for i, owner in enumerate(unique_owners):
+        begin = owners_offsets[i]
+        end = owners_offsets[i + 1]
+        send_buff_idx[i] = index_map.ghosts[owners_argsorted[begin:end]]
+        reqs = MPI.COMM_WORLD.Isend(send_buff_idx[i], dest=owner)
+        all_requests.append(reqs)
+
+    # Receive
+    recv_buff_idx = [np.zeros(size, dtype=np.int64) for size in ghosts_size]
+    for i, ghost in enumerate(unique_ghosts):
+        reqr = MPI.COMM_WORLD.Irecv(recv_buff_idx[i], source=ghost)
+        all_requests.append(reqr)
+
+    MPI.Request.Waitall(all_requests)
+
+    ghosts_idx = [recv_buff - index_map.local_range[0] for recv_buff in recv_buff_idx]
+
+    owners_data = [owners_idx, owners_size, unique_owners]
+    ghosts_data = [ghosts_idx, ghosts_size, unique_ghosts]
+
+    return owners_data, ghosts_data
 
 
 def facet_integration_domain(facets: npt.NDArray[np.int32], mesh: Mesh):
