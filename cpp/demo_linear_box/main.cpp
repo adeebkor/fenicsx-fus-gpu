@@ -15,8 +15,8 @@
 #include <iomanip>
 #include <iostream>
 
-#define T_MPI MPI_FLOAT
-using T = float;
+#define T_MPI MPI_DOUBLE
+using T = double;
 
 int main(int argc, char* argv[]) {
   dolfinx::init_logging(argc, argv);
@@ -64,15 +64,6 @@ int main(int argc, char* argv[]) {
     );
     mesh->topology()->create_connectivity(1, 2);
 
-    // Create function space
-    auto V = std::make_shared<fem::FunctionSpace<T>>(
-        fem::create_functionspace(functionspace_form_forms_a, "u", mesh));
-
-    auto dofs = V->dofmap()->index_map->size_global();
-
-    if (mpi_rank == 0)
-      std::cout << "Number of degrees-of-freedom: " << dofs << "\n";
-
     // Mesh data
     const int tdim = mesh->topology()->dim();
     const std::size_t num_cell = mesh->topology()->index_map(tdim)->size_local();
@@ -100,9 +91,21 @@ int main(int argc, char* argv[]) {
         std::cout << "Number of steps: " << numberOfStep << "\n";
     }
 
+    // Finite element
+    basix::FiniteElement element = basix::create_element<T>(
+      basix::element::family::P, basix::cell::type::hexahedron, degreeOfBasis,
+      basix::element::lagrange_variant::gll_warped,
+      basix::element::dpc_variant::unset, false
+    );
+
     // Define DG functions for material parameters
+    basix::FiniteElement element_DG = basix::create_element<T>(
+      basix::element::family::P, basix::cell::type::hexahedron, 0,
+      basix::element::lagrange_variant::gll_warped,
+      basix::element::dpc_variant::unset, true
+    );
     auto V_DG = std::make_shared<fem::FunctionSpace<T>>(
-        fem::create_functionspace(functionspace_form_forms_a, "c0", mesh));
+        fem::create_functionspace(mesh, element_DG));
     auto c0 = std::make_shared<fem::Function<T>>(V_DG);
     auto rho0 = std::make_shared<fem::Function<T>>(V_DG);
 
@@ -182,7 +185,7 @@ int main(int argc, char* argv[]) {
   
     // Model
     auto model = LinearSpectral3D<T, degreeOfBasis>(
-        mesh, mt_facet, c0, rho0, sourceFrequency, sourceAmplitude,
+        element, mesh, mt_facet, c0, rho0, sourceFrequency, sourceAmplitude,
         speedOfSound);
 
     // Solve
@@ -203,7 +206,7 @@ int main(int argc, char* argv[]) {
     auto u_n = model.u_sol();
 
     // Output to VTX
-    dolfinx::io::VTXWriter<T> u_out(mesh->comm(), "output_final.bp", {u_n}, "BP4");
+    dolfinx::io::VTXWriter<T> u_out(mesh->comm(), "output_final.bp", {u_n}, "bp5");
     u_out.write(0.0);
 
     // List timings

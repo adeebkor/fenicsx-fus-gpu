@@ -10,7 +10,7 @@
 #include <dolfinx.h>
 #include <dolfinx/io/XDMFFile.h>
 
-using T = float;
+using T = double;
 
 using namespace dolfinx;
 
@@ -37,9 +37,16 @@ int main(int argc, char* argv[]) {
         mesh::CellType::hexahedron,
         part));
 
+    // Finite element
+    basix::FiniteElement element = basix::create_element<T>(
+      basix::element::family::P, basix::cell::type::hexahedron, P,
+      basix::element::lagrange_variant::gll_warped,
+      basix::element::dpc_variant::unset, false
+    );
+
     // Create function space
     auto V = std::make_shared<fem::FunctionSpace<T>>(
-        fem::create_functionspace(functionspace_form_forms_m, "u", mesh));
+        fem::create_functionspace(mesh, element));
 
     // Get index map and block size
     auto index_map = V->dofmap()->index_map;
@@ -56,8 +63,13 @@ int main(int argc, char* argv[]) {
     });
 
     // Create DG functions
+    basix::FiniteElement element_DG = basix::create_element<T>(
+      basix::element::family::P, basix::cell::type::hexahedron, 0,
+      basix::element::lagrange_variant::gll_warped,
+      basix::element::dpc_variant::unset, true
+    );
     auto V_DG = std::make_shared<fem::FunctionSpace<T>>(
-        fem::create_functionspace(functionspace_form_forms_m, "c0", mesh));
+        fem::create_functionspace(mesh, element_DG));
     auto c0 = std::make_shared<fem::Function<T>>(V_DG);
 
     std::span<T> c0_ = c0->x()->mutable_array();
@@ -72,8 +84,8 @@ int main(int argc, char* argv[]) {
 
     // ------------------------------------------------------------------------
     // Compute dolfinx mass vector
-    auto m = std::make_shared<fem::Form<T, T>>(fem::create_form<T, T>(
-        *form_forms_m, {V}, {{"u", u}, {"c0", c0}}, {}, {}));
+    auto m = std::make_shared<fem::Form<T>>(fem::create_form<T>(
+        *form_forms_m, {V}, {{"u", u}, {"c0", c0}}, {}, {}, {}));
 
     auto m0 = std::make_shared<fem::Function<T>>(V);
     fem::assemble_vector(m0->x()->mutable_array(), *m);
@@ -94,8 +106,8 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------------
     // Equality check (Mass)
 
-    auto Em = std::make_shared<fem::Form<T, T>>(
-        fem::create_form<T, T>(*form_forms_E, {}, {{"f0", m0}, {"f1", m1}}, {}, {}, mesh));
+    auto Em = std::make_shared<fem::Form<T>>(
+        fem::create_form<T>(*form_forms_E, {}, {{"f0", m0}, {"f1", m1}}, {}, {}, {}, {mesh}));
     T error_m = fem::assemble_scalar(*Em);
 
     std::cout << "Relative L2 error (mass), "
@@ -110,8 +122,8 @@ int main(int argc, char* argv[]) {
 
     // ------------------------------------------------------------------------
     // Compute dolfinx stiffness vector
-    auto s = std::make_shared<fem::Form<T, T>>(
-        fem::create_form<T, T>(*form_forms_s, {V}, {{"u", u}, {"c0", c0}}, {}, {}));
+    auto s = std::make_shared<fem::Form<T>>(
+        fem::create_form<T>(*form_forms_s, {V}, {{"u", u}, {"c0", c0}}, {}, {}, {}));
 
     auto s0 = std::make_shared<fem::Function<T>>(V);
     fem::assemble_vector(s0->x()->mutable_array(), *s);
@@ -132,8 +144,8 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------------
     // Equality check (Stiffness)
 
-    auto Es = std::make_shared<fem::Form<T, T>>(
-        fem::create_form<T, T>(*form_forms_E, {}, {{"f0", s0}, {"f1", s1}}, {}, {}, mesh));
+    auto Es = std::make_shared<fem::Form<T>>(
+        fem::create_form<T>(*form_forms_E, {}, {{"f0", s0}, {"f1", s1}}, {}, {}, {}, {mesh}));
     T error_s = fem::assemble_scalar(*Es);
 
     std::cout << "Relative L2 error (stiffness), "
