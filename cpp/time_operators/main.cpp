@@ -10,7 +10,7 @@
 #include <dolfinx.h>
 #include <dolfinx/io/XDMFFile.h>
 
-using T = float;
+using T = double;
 
 using namespace dolfinx;
 
@@ -37,14 +37,16 @@ int main(int argc, char* argv[]) {
         mesh::CellType::hexahedron,
         part));
 
+    // Finite element
+    basix::FiniteElement element = basix::create_element<T>(
+      basix::element::family::P, basix::cell::type::hexahedron, P,
+      basix::element::lagrange_variant::gll_warped,
+      basix::element::dpc_variant::unset, false
+    );
+
     // Create function space
     auto V = std::make_shared<fem::FunctionSpace<T>>(
-        fem::create_functionspace(functionspace_form_forms_m, "u", mesh));
-
-    auto dofs = V->dofmap()->index_map->size_global();
-
-    if (mpi_rank == 0)
-      std::cout << "Number of degrees-of-freedom: " << dofs << "\n";
+        fem::create_functionspace(mesh, element));
 
     // Get index map and block size
     auto index_map = V->dofmap()->index_map;
@@ -61,8 +63,13 @@ int main(int argc, char* argv[]) {
     });
 
     // Create DG functions
+    basix::FiniteElement element_DG = basix::create_element<T>(
+      basix::element::family::P, basix::cell::type::hexahedron, 0,
+      basix::element::lagrange_variant::gll_warped,
+      basix::element::dpc_variant::unset, true
+    );
     auto V_DG = std::make_shared<fem::FunctionSpace<T>>(
-        fem::create_functionspace(functionspace_form_forms_m, "c0", mesh));
+        fem::create_functionspace(mesh, element_DG));
     auto c0 = std::make_shared<fem::Function<T>>(V_DG);
 
     std::span<T> c0_ = c0->x()->mutable_array();
