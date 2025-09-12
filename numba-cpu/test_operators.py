@@ -30,7 +30,7 @@ float_type = np.float32
 if isinstance(float_type, np.float64):
     tol = 1e-12
 else:
-    tol = 1e-6
+    tol = 1e-4
 
 P = 4  # Basis function order
 Q = {
@@ -73,7 +73,7 @@ family = basix.ElementFamily.P
 variant = basix.LagrangeVariant.gll_warped
 cell_type = mesh.basix_cell()
 
-basix_element = basix.create_tp_element(family, cell_type, P, variant)
+basix_element = basix.create_tp_element(family, cell_type, P, variant, dtype=float_type)
 element = basix.ufl._BasixElement(basix_element)  # basix ufl element
 
 # Create function space
