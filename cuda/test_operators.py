@@ -38,7 +38,7 @@ if cuda.is_available():
 cuda.detect()
 cuda.select_device(rank)
 
-print(f"{rank} : {cuda.get_current_device()}")
+# print(f"{rank} : {cuda.get_current_device()}")
 
 float_type = np.float64
 
@@ -60,7 +60,7 @@ Q = {
     10: 18,
 }  # Quadrature degree
 
-N = 4
+N = 16
 mesh = create_box(
     comm,
     ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
